@@ -7,12 +7,12 @@ pub enum Event {
     Game(GameEvent),
     #[serde(rename = "sla")]
     Sla(SLAEvent),
-
     #[serde(rename = "dd")]
     DD(DDEvent),
-
     #[serde(rename = "sexlab")]
     Sexlab(SexlabEvent),
+    #[serde(rename = "MME")]
+    MilkMod(MilkModEvent),
 }
 
 #[derive(Debug, Deserialize)]
@@ -48,7 +48,7 @@ pub struct LoadingSaveEvent {
 pub struct DamageEvent {
     source: String,
     projectile: String,
-    #[serde(rename="powerAttack")]
+    #[serde(rename = "powerAttack")]
     power_attack: bool,
     blocked: bool,
 }
@@ -224,4 +224,21 @@ pub struct PositionChanged {
     name: String,
     #[serde(rename = "pos")]
     position: u8,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "event")]
+pub enum MilkModEvent {
+    StartMilkingMachine(MilkModData),
+    StopMilkingMachine(MilkModData),
+    FeedingStage(MilkModData),
+    MilkingStage(MilkModData),
+    FuckMachineStage(MilkModData),
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MilkModData {
+    mpas: i32,
+    #[serde(rename = "MilkingType")]
+    milking_type: i32,
 }
