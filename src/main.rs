@@ -1,9 +1,7 @@
-use std::{
-    io::{Read},
-    time::Duration,
-};
+use std::{io::Read, time::Duration};
 
-use tracing::{error, info, Level};
+use link_file::{DDEvent, Event, GameEvent};
+use tracing::{debug, error, info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 mod link_file;
@@ -30,7 +28,10 @@ fn main() {
             .unwrap();
     let mut content = String::new();
 
-    // file.seek(SeekFrom::End(0)).unwrap();
+    let (mut tx, rx) = std::sync::mpsc::channel();
+
+    let mut loading = false;
+    let mut old_events = true;
 
     loop {
         let bytes = file.read_to_string(&mut content).unwrap();
@@ -46,7 +47,27 @@ fn main() {
                         let event = serde_json::from_str::<link_file::Event>(line);
 
                         match event {
-                            Ok(ev) => info!(?ev, ?line, "Parsed Event"),
+                            Ok(Event::Game(GameEvent::LoadingSaveDone)) => {
+                                loading = false;
+                            }
+                            Ok(ev @ Event::Game(GameEvent::LoadingSave(_))) => {
+                                loading = true;
+                                tx.send(ev).unwrap();
+                            }
+                            Ok(ev @ Event::Sla(_))
+                            | Ok(ev @ Event::DD(DDEvent::EquipmentChanged(_))) => {
+                                info!(?ev, "Handling Event");
+
+                                tx.send(ev).unwrap();
+                            }
+                            Ok(ev) if loading | old_events => {
+                                debug!(?ev, "Skipping Event");
+                            }
+                            Ok(ev) => {
+                                info!(?ev, "Handling Event");
+
+                                tx.send(ev).unwrap();
+                            }
                             Err(e) => error!(?e, ?line, "Could not Parse Event"),
                         }
                     }
@@ -55,6 +76,8 @@ fn main() {
                 }
             }
         }
+
+        old_events = false;
 
         std::thread::sleep(Duration::from_millis(100));
     }
