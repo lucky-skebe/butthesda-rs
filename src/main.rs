@@ -17,7 +17,9 @@ fn main() -> anyhow::Result<()> {
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-    Ok(UI::run(iced::Settings::with_flags(Options {}))?)
+    Ok(UI::run(iced::Settings::with_flags(Options {
+        file_path: "E:\\ModOrganizer2\\SSE\\mods\\Butthesda\\FunScripts\\link.txt".to_string(),
+    }))?)
 
     // let mut process = Process::open(memory::SKYRIM_SE).unwrap().unwrap();
 
@@ -50,7 +52,9 @@ pub enum Message {
     FileEvent(link_file::Event),
 }
 
-pub struct Options {}
+pub struct Options {
+    file_path: String,
+}
 
 pub struct UI {
     player_state: player_state::State,
@@ -63,10 +67,10 @@ impl Application for UI {
 
     type Flags = Options;
 
-    fn new(_flags: Self::Flags) -> (Self, iced::Command<Self::Message>) {
+    fn new(flags: Self::Flags) -> (Self, iced::Command<Self::Message>) {
         (
             Self {
-                player_state: player_state::State::new(),
+                player_state: player_state::State::new(flags.file_path),
             },
             iced::Command::none(),
         )

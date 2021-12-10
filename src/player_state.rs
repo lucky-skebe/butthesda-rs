@@ -1,5 +1,4 @@
 use iced::Subscription;
-use tracing::info;
 
 use crate::link_file::{EquipmentChanged as EqipmentState, Event, LinkFileScanner};
 
@@ -21,25 +20,27 @@ pub enum Message {
     Arousal(u8),
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct State {
     arousal: u8,
     equipment_state: EqipmentState,
     detected_mods: Vec<String>,
     game_status: GameState,
+    file_path: String,
 }
 
 impl State {
-    pub fn new() -> Self {
+    pub fn new(file_path: String) -> Self {
         Self {
             arousal: Default::default(),
             equipment_state: Default::default(),
             detected_mods: Default::default(),
             game_status: Default::default(),
+            file_path,
         }
     }
 
-    pub fn update(&mut self, message: Message) -> iced::Command<crate::Message> {
+    pub fn update(&mut self, _message: Message) -> iced::Command<crate::Message> {
         iced::Command::none()
     }
 
@@ -116,15 +117,16 @@ impl State {
             column = column.push(iced::Text::new(detected_mod.clone()));
         }
 
-        column = column.push(iced::Text::new(format!("Game State: {:?}", self.game_status)));
+        column = column.push(iced::Text::new(format!(
+            "Game State: {:?}",
+            self.game_status
+        )));
 
         iced::Container::new(column).into()
     }
 
     pub fn subscription(&self) -> iced::Subscription<crate::Message> {
-        Subscription::from_recipe(LinkFileScanner::new(
-            "E:\\ModOrganizer2\\SSE\\mods\\Butthesda\\FunScripts\\link.txt".to_string(),
-        ))
-        .map(|e| crate::Message::FileEvent(e))
+        Subscription::from_recipe(LinkFileScanner::new(self.file_path.clone()))
+            .map(|e| crate::Message::FileEvent(e))
     }
 }
