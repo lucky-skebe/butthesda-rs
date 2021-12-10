@@ -1,4 +1,4 @@
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "mod")]
@@ -33,29 +33,29 @@ pub enum GameEvent {
 #[derive(Debug, Deserialize)]
 pub struct LoadingSaveEvent {
     #[serde(rename = "DD_Running")]
-    dd_running: bool,
+    pub dd_running: bool,
     #[serde(rename = "SGO_Running")]
-    sgo_running: bool,
+    pub sgo_running: bool,
     #[serde(rename = "BF_Running")]
-    bf_running: bool,
+    pub bf_running: bool,
     #[serde(rename = "MME_Running")]
-    mme_running: bool,
+    pub mme_running: bool,
     #[serde(rename = "SLA_Running")]
-    sla_running: bool,
+    pub sla_running: bool,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct DamageEvent {
-    source: String,
-    projectile: String,
+    pub source: String,
+    pub projectile: String,
     #[serde(rename = "powerAttack")]
-    power_attack: bool,
-    blocked: bool,
+    pub power_attack: bool,
+    pub blocked: bool,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct SLAEvent {
-    arousal: u8,
+    pub arousal: u8,
 }
 
 #[derive(Debug, Deserialize)]
@@ -77,12 +77,12 @@ pub enum DDEvent {
 
 #[derive(Debug, Deserialize)]
 pub struct EquipmentChanged {
-    vaginal: EquipmentType,
-    anal: EquipmentType,
+    pub vaginal: EquipmentType,
+    pub anal: EquipmentType,
     #[serde(rename = "vaginalPiecing")]
-    vaginal_piercing: EquipmentType,
+    pub vaginal_piercing: EquipmentType,
     #[serde(rename = "nipplePiercing")]
-    nipple_piercing: EquipmentType,
+    pub nipple_piercing: EquipmentType,
 }
 
 #[derive(Debug, Deserialize)]
@@ -95,22 +95,22 @@ pub enum EquipmentType {
 
 #[derive(Debug, Deserialize)]
 pub struct VibrationStart {
-    arg: f32,
+    pub arg: f32,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct VibrationStop {
-    arg: f32,
+    pub arg: f32,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Orgasm {
-    arg: f32,
+    pub arg: f32,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Edged {
-    arg: f32,
+    pub arg: f32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -202,28 +202,28 @@ pub enum SexlabEvent {
 
 #[derive(Debug, Deserialize)]
 pub struct Animation {
-    name: String,
-    stage: u8,
+    pub name: String,
+    pub stage: u8,
     #[serde(rename = "pos")]
-    position: u8,
+    pub position: u8,
     #[serde(rename = "usingStrappon")]
-    using_strapon: bool,
+    pub using_strapon: bool,
     #[serde(rename = "isMale")]
-    is_male: bool,
-    tags: Vec<String>,
+    pub is_male: bool,
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct StageStarted {
-    name: String,
-    stage: u8,
+    pub name: String,
+    pub stage: u8,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct PositionChanged {
-    name: String,
+    pub name: String,
     #[serde(rename = "pos")]
-    position: u8,
+    pub position: u8,
 }
 
 #[derive(Debug, Deserialize)]
@@ -238,7 +238,7 @@ pub enum MilkModEvent {
 
 #[derive(Debug, Deserialize)]
 pub struct MilkModData {
-    mpas: i32,
+    pub mpas: i32,
     #[serde(rename = "MilkingType")]
-    milking_type: i32,
+    pub milking_type: i32,
 }
