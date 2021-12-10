@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "mod")]
 pub enum Event {
     #[serde(rename = "game")]
@@ -15,7 +15,7 @@ pub enum Event {
     MilkMod(MilkModEvent),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "event")]
 pub enum GameEvent {
     #[serde(rename = "menu opened")]
@@ -30,7 +30,7 @@ pub enum GameEvent {
     DamageEvent(DamageEvent),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct LoadingSaveEvent {
     #[serde(rename = "DD_Running")]
     pub dd_running: bool,
@@ -44,7 +44,7 @@ pub struct LoadingSaveEvent {
     pub sla_running: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct DamageEvent {
     pub source: String,
     pub projectile: String,
@@ -53,12 +53,12 @@ pub struct DamageEvent {
     pub blocked: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct SLAEvent {
     pub arousal: u8,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "event")]
 pub enum DDEvent {
     #[serde(rename = "(de)equiped")]
@@ -75,7 +75,7 @@ pub enum DDEvent {
     DeviceEvent(DeviceEvent),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default, Clone)]
 pub struct EquipmentChanged {
     pub vaginal: EquipmentType,
     pub anal: EquipmentType,
@@ -85,35 +85,45 @@ pub struct EquipmentChanged {
     pub nipple_piercing: EquipmentType,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub enum EquipmentType {
+    #[serde(alias="none")]
     None,
+    #[serde(alias="pump")]
     Pump,
+    #[serde(alias="magic")]
     Magic,
+    #[serde(alias="normal")]
     Normal,
 }
 
-#[derive(Debug, Deserialize)]
+impl Default for EquipmentType{
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct VibrationStart {
     pub arg: f32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct VibrationStop {
     pub arg: f32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Orgasm {
     pub arg: f32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Edged {
     pub arg: f32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub enum DeviceEvent {
     #[serde(rename = "trip over")]
     TripOver,
@@ -179,7 +189,7 @@ pub enum DeviceEvent {
     Other,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "event")]
 pub enum SexlabEvent {
     #[serde(rename = "animation started")]
@@ -200,7 +210,7 @@ pub enum SexlabEvent {
     OrgasmEnded,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Animation {
     pub name: String,
     pub stage: u8,
@@ -213,20 +223,20 @@ pub struct Animation {
     pub tags: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct StageStarted {
     pub name: String,
     pub stage: u8,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct PositionChanged {
     pub name: String,
     #[serde(rename = "pos")]
     pub position: u8,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "event")]
 pub enum MilkModEvent {
     StartMilkingMachine(MilkModData),
@@ -236,7 +246,7 @@ pub enum MilkModEvent {
     FuckMachineStage(MilkModData),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct MilkModData {
     pub mpas: i32,
     #[serde(rename = "MilkingType")]
