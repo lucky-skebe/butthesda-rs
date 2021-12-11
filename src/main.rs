@@ -3,6 +3,7 @@ use std::str::FromStr;
 use iced::Application;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
+mod funscript;
 mod link_file;
 mod memory;
 mod player_state;
@@ -45,11 +46,12 @@ fn main() -> anyhow::Result<()> {
     // }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum Message {
     PlayerState(player_state::Message),
     SomethingBroke(String),
     FileEvent(link_file::Event),
+    FunscriptsLoaded(funscript::Funscripts),
 }
 
 pub struct Options {
@@ -58,6 +60,7 @@ pub struct Options {
 
 pub struct UI {
     player_state: player_state::State,
+    funscripts: Option<funscript::Funscripts>,
 }
 
 impl Application for UI {
@@ -71,8 +74,12 @@ impl Application for UI {
         (
             Self {
                 player_state: player_state::State::new(flags.file_path),
+                funscripts: None,
             },
-            iced::Command::none(),
+            iced::Command::perform(
+                funscript::Funscripts::load("E:\\ModOrganizer2\\SSE\\mods\\Butthesda\\FunScripts"),
+                |f| Message::FunscriptsLoaded(f.unwrap()),
+            ),
         )
     }
 
@@ -89,6 +96,10 @@ impl Application for UI {
             Message::PlayerState(message) => self.player_state.update(message),
             Message::SomethingBroke(_s) => iced::Command::none(),
             Message::FileEvent(ev) => self.player_state.handle(ev),
+            Message::FunscriptsLoaded(f) => {
+                self.funscripts = Some(f);
+                iced::Command::none()
+            }
         }
     }
 
