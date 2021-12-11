@@ -32,3 +32,4 @@ iced = "0.3"
 iced_futures = { version = "0.3", features = ["tokio"] }
 iced_native = "0.4"
 futures = "0.3"
+buttplug = "5.1"

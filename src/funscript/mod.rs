@@ -3,61 +3,13 @@ use std::{collections::HashMap, path::Path};
 use tokio::io::AsyncReadExt;
 use tracing::error;
 
+use crate::{BodyPart, EventType};
+
 mod contracts;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum BodyPart {
-    Head,
-    Body,
-    Breast,
-    Belly,
-    Feet,
-    Mouth,
-    Vaginal,
-    Clit,
-    Anal,
-}
 
-impl BodyPart {
-    fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "head" => Some(Self::Head),
-            "body" => Some(Self::Body),
-            "breast" => Some(Self::Breast),
-            "belly" => Some(Self::Belly),
-            "feet" => Some(Self::Feet),
-            "mouth" => Some(Self::Mouth),
-            "vaginal" => Some(Self::Vaginal),
-            "clit" => Some(Self::Clit),
-            "anal" => Some(Self::Anal),
-            _ => None,
-        }
-    }
-}
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum EventType {
-    Shock,
-    Damage,
-    Penetrate,
-    Vibrate,
-    Equip,
-}
-
-impl EventType {
-    fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "shock" => Some(Self::Shock),
-            "damage" => Some(Self::Damage),
-            "penetrate" => Some(Self::Penetrate),
-            "vibrate" => Some(Self::Vibrate),
-            "equip" => Some(Self::Equip),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Funscripts {
     sexlab: HashMap<
         String,
