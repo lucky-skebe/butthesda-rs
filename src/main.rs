@@ -1,9 +1,5 @@
-use std::{str::FromStr, sync::Arc};
+use std::str::FromStr;
 
-use ::buttplug::{
-    client::{ButtplugClient, ButtplugClientError, ButtplugClientEvent},
-    server::comm_managers::DeviceCommunicationManager,
-};
 use iced::Application;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
@@ -51,7 +47,7 @@ fn main() -> anyhow::Result<()> {
     // }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BodyPart {
     Head,
     Body,
@@ -79,9 +75,23 @@ impl BodyPart {
             _ => None,
         }
     }
+
+    fn variants() -> [Self; 9] {
+        [
+            Self::Head,
+            Self::Body,
+            Self::Breast,
+            Self::Belly,
+            Self::Feet,
+            Self::Mouth,
+            Self::Vaginal,
+            Self::Clit,
+            Self::Anal,
+        ]
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EventType {
     Shock,
     Damage,
@@ -101,6 +111,16 @@ impl EventType {
             _ => None,
         }
     }
+
+    fn variants() -> [Self; 5] {
+        [
+            Self::Shock,
+            Self::Damage,
+            Self::Penetrate,
+            Self::Vibrate,
+            Self::Equip,
+        ]
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -109,9 +129,8 @@ pub enum Message {
     SomethingBroke(String),
     FileEvent(link_file::Event),
     FunscriptsLoaded(funscript::Funscripts),
-    ButtplugEvent(ButtplugClientEvent),
+    ButtplugMessage(buttplug::ButtplugMessage),
     Nothing,
-    StartScan,
 }
 
 pub struct Options {
@@ -122,10 +141,6 @@ pub struct UI {
     player_state: player_state::State,
     pub buttplug: buttplug::State,
     funscripts: Option<funscript::Funscripts>,
-}
-
-async fn start_scan(client: Arc<ButtplugClient>) -> Result<(), ButtplugClientError> {
-    client.start_scanning().await
 }
 
 impl Application for UI {
@@ -164,17 +179,6 @@ impl Application for UI {
         message: Self::Message,
         _clipboard: &mut iced::Clipboard,
     ) -> iced::Command<Self::Message> {
-
-        let f = {
-            let client = self.buttplug.client.clone();
-            || async move {
-                match client {
-                    Some(c) => start_scan(c).await,
-                    None => Ok(()),
-                }
-            }
-        };
-
         match message {
             Message::PlayerState(message) => self.player_state.update(message),
             Message::SomethingBroke(_s) => iced::Command::none(),
@@ -183,12 +187,8 @@ impl Application for UI {
                 self.funscripts = Some(f);
                 iced::Command::none()
             }
-            Message::ButtplugEvent(ev) => self.buttplug.update(ev),
+            Message::ButtplugMessage(ev) => self.buttplug.update(ev),
             Message::Nothing => iced::Command::none(),
-            Message::StartScan => iced::Command::perform(
-                f(),
-                |_| Message::Nothing,
-            ),
         }
     }
 
