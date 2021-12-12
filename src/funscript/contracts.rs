@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use std::time::Duration;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Funscript {
     #[serde(rename = "version")]
     pub version: String,
@@ -16,7 +16,7 @@ pub struct Funscript {
     pub actions: Vec<Action>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Action {
     #[serde(rename = "pos")]
     pub pos: u8,

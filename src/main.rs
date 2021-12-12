@@ -3,6 +3,7 @@ use std::str::FromStr;
 use iced::Application;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
+mod buttplug;
 mod funscript;
 mod link_file;
 mod memory;
@@ -46,12 +47,90 @@ fn main() -> anyhow::Result<()> {
     // }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BodyPart {
+    Head,
+    Body,
+    Breast,
+    Belly,
+    Feet,
+    Mouth,
+    Vaginal,
+    Clit,
+    Anal,
+}
+
+impl BodyPart {
+    fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "head" => Some(Self::Head),
+            "body" => Some(Self::Body),
+            "breast" => Some(Self::Breast),
+            "belly" => Some(Self::Belly),
+            "feet" => Some(Self::Feet),
+            "mouth" => Some(Self::Mouth),
+            "vaginal" => Some(Self::Vaginal),
+            "clit" => Some(Self::Clit),
+            "anal" => Some(Self::Anal),
+            _ => None,
+        }
+    }
+
+    fn variants() -> [Self; 9] {
+        [
+            Self::Head,
+            Self::Body,
+            Self::Breast,
+            Self::Belly,
+            Self::Feet,
+            Self::Mouth,
+            Self::Vaginal,
+            Self::Clit,
+            Self::Anal,
+        ]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EventType {
+    Shock,
+    Damage,
+    Penetrate,
+    Vibrate,
+    Equip,
+}
+
+impl EventType {
+    fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "shock" => Some(Self::Shock),
+            "damage" => Some(Self::Damage),
+            "penetrate" => Some(Self::Penetrate),
+            "vibrate" => Some(Self::Vibrate),
+            "equip" => Some(Self::Equip),
+            _ => None,
+        }
+    }
+
+    fn variants() -> [Self; 5] {
+        [
+            Self::Shock,
+            Self::Damage,
+            Self::Penetrate,
+            Self::Vibrate,
+            Self::Equip,
+        ]
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Message {
     PlayerState(player_state::Message),
     SomethingBroke(String),
     FileEvent(link_file::Event),
     FunscriptsLoaded(funscript::Funscripts),
+    ButtplugMessage(buttplug::ButtplugMessage),
+    Nothing,
 }
 
 pub struct Options {
@@ -60,6 +139,7 @@ pub struct Options {
 
 pub struct UI {
     player_state: player_state::State,
+    pub buttplug: buttplug::State,
     funscripts: Option<funscript::Funscripts>,
 }
 
@@ -71,15 +151,22 @@ impl Application for UI {
     type Flags = Options;
 
     fn new(flags: Self::Flags) -> (Self, iced::Command<Self::Message>) {
+        let (buttplug, buttplug_command) = buttplug::State::new();
         (
             Self {
                 player_state: player_state::State::new(flags.file_path),
                 funscripts: None,
+                buttplug,
             },
-            iced::Command::perform(
-                funscript::Funscripts::load("E:\\ModOrganizer2\\SSE\\mods\\Butthesda\\FunScripts"),
-                |f| Message::FunscriptsLoaded(f.unwrap()),
-            ),
+            iced::Command::batch([
+                buttplug_command,
+                iced::Command::perform(
+                    funscript::Funscripts::load(
+                        "E:\\ModOrganizer2\\SSE\\mods\\Butthesda\\FunScripts",
+                    ),
+                    |f| Message::FunscriptsLoaded(f.unwrap()),
+                ),
+            ]),
         )
     }
 
@@ -100,16 +187,25 @@ impl Application for UI {
                 self.funscripts = Some(f);
                 iced::Command::none()
             }
+            Message::ButtplugMessage(ev) => self.buttplug.update(ev),
+            Message::Nothing => iced::Command::none(),
         }
     }
 
     fn subscription(&self) -> iced::Subscription<Self::Message> {
-        let subscriptions = [self.player_state.subscription()];
+        let subscriptions = [
+            self.player_state.subscription(),
+            self.buttplug.subscription(),
+        ];
 
         iced::Subscription::batch(subscriptions)
     }
 
     fn view(&mut self) -> iced::Element<'_, Self::Message> {
-        self.player_state.view()
+        let row = iced::Row::new()
+            .push(self.player_state.view())
+            .push(self.buttplug.view());
+
+        iced::Container::new(row).into()
     }
 }
