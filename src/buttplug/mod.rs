@@ -1,11 +1,13 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    fmt::Display,
     hash::{Hash, Hasher},
     sync::Arc,
 };
 
-use buttplug::client::{
-    ButtplugClient, ButtplugClientDevice, ButtplugClientError, ButtplugClientEvent,
+use buttplug::{
+    client::{ButtplugClient, ButtplugClientDevice, ButtplugClientError, ButtplugClientEvent},
+    core::messages::ButtplugCurrentSpecDeviceMessageType,
 };
 use iced::Subscription;
 
@@ -40,15 +42,34 @@ where
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+enum DeviceInteraction {
+    Vibrate,
+    Rotate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct DeviceFeature {
+    interaction: DeviceInteraction,
+    index: u32,
+}
+
+impl Display for DeviceFeature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?} - {}", self.interaction, self.index)
+    }
+}
+
 pub struct Device {
     inner: Arc<ButtplugClientDevice>,
-    mapping: HashMap<crate::BodyPart, HashSet<crate::EventType>>,
+    mappings: BTreeMap<DeviceFeature, HashMap<crate::BodyPart, HashSet<crate::EventType>>>,
 }
 
 #[derive(Debug, Clone)]
 pub enum ButtplugMessage {
     ClientEvent(ButtplugClientEvent),
     DeviceSelected(String),
+    InteractionSelected(DeviceFeature),
     StopScan,
     StartScan,
     DeviceMappingChanged(BodyPart, EventType, bool),
@@ -58,10 +79,12 @@ pub struct State {
     pub client: Option<Arc<ButtplugClient>>,
     devices: BTreeMap<String, Device>,
     selected_device: Option<String>,
+    selected_feature: Option<DeviceFeature>,
 
     scanning: bool,
     scan_btn: iced::button::State,
     device_list: iced::pick_list::State<String>,
+    feature_list: iced::pick_list::State<DeviceFeature>,
 }
 
 async fn connect(c: Arc<ButtplugClient>) -> Result<(), ButtplugClientError> {
@@ -89,8 +112,10 @@ impl State {
                 devices: BTreeMap::new(),
                 scanning: false,
                 selected_device: None,
+                selected_feature: None,
                 scan_btn: Default::default(),
                 device_list: Default::default(),
+                feature_list: Default::default(),
             },
             {
                 iced::Command::perform(f, |e| match e {
@@ -107,13 +132,44 @@ impl State {
                 iced::Command::none()
             }
             ButtplugMessage::ClientEvent(ButtplugClientEvent::DeviceAdded(d)) => {
-                self.devices.insert(
-                    d.name.to_string(),
-                    Device {
-                        inner: d,
-                        mapping: HashMap::new(),
-                    },
-                );
+                let mut mappings = BTreeMap::new();
+
+                if let Some(message) = d
+                    .allowed_messages
+                    .get(&ButtplugCurrentSpecDeviceMessageType::VibrateCmd)
+                {
+                    if let Some(feature_count) = message.feature_count {
+                        for i in 1..=feature_count {
+                            mappings.insert(
+                                DeviceFeature {
+                                    index: i,
+                                    interaction: DeviceInteraction::Vibrate,
+                                },
+                                HashMap::new(),
+                            );
+                        }
+                    }
+                }
+
+                if let Some(message) = d
+                    .allowed_messages
+                    .get(&ButtplugCurrentSpecDeviceMessageType::RotateCmd)
+                {
+                    if let Some(feature_count) = message.feature_count {
+                        for i in 1..=feature_count {
+                            mappings.insert(
+                                DeviceFeature {
+                                    index: i,
+                                    interaction: DeviceInteraction::Rotate,
+                                },
+                                HashMap::new(),
+                            );
+                        }
+                    }
+                }
+
+                self.devices
+                    .insert(d.name.to_string(), Device { inner: d, mappings });
 
                 iced::Command::none()
             }
@@ -129,8 +185,13 @@ impl State {
                 iced::Command::none()
             }
             ButtplugMessage::ClientEvent(ButtplugClientEvent::Error(_)) => iced::Command::none(),
-            ButtplugMessage::DeviceSelected(s) => {
-                self.selected_device = Some(s);
+            ButtplugMessage::DeviceSelected(d) => {
+                self.selected_device = Some(d);
+                self.selected_feature = None;
+                iced::Command::none()
+            }
+            ButtplugMessage::InteractionSelected(i) => {
+                self.selected_feature = Some(i);
                 iced::Command::none()
             }
             ButtplugMessage::StopScan => {
@@ -165,19 +226,23 @@ impl State {
             }
             ButtplugMessage::DeviceMappingChanged(body_part, event_type, mapped) => {
                 if let Some(selected_device) = &mut self.selected_device {
-                    if let Some(device) = self.devices.get_mut(selected_device) {
-                        if let Some(body_part_mapping) = device.mapping.get_mut(&body_part) {
-                            if mapped {
-                                body_part_mapping.insert(event_type);
-                            } else {
-                                body_part_mapping.remove(&event_type);
+                    if let Some(selected_feature) = &mut self.selected_feature {
+                        if let Some(device) = self.devices.get_mut(selected_device) {
+                            if let Some(feature) = device.mappings.get_mut(selected_feature) {
+                                if let Some(body_part_mapping) = feature.get_mut(&body_part) {
+                                    if mapped {
+                                        body_part_mapping.insert(event_type);
+                                    } else {
+                                        body_part_mapping.remove(&event_type);
+                                    }
+                                } else {
+                                    let mut set = HashSet::new();
+                                    if mapped {
+                                        set.insert(event_type);
+                                    }
+                                    feature.insert(body_part, set);
+                                }
                             }
-                        } else {
-                            let mut set = HashSet::new();
-                            if mapped {
-                                set.insert(event_type);
-                            }
-                            device.mapping.insert(body_part, set);
                         }
                     }
                 }
@@ -187,15 +252,6 @@ impl State {
     }
 
     pub fn view(&mut self) -> iced::Element<'_, crate::Message> {
-        let keys: Vec<String> = self.devices.keys().cloned().collect();
-
-        let picklist = iced::pick_list::PickList::new(
-            &mut self.device_list,
-            keys,
-            self.selected_device.clone(),
-            |s| crate::Message::ButtplugMessage(ButtplugMessage::DeviceSelected(s)),
-        );
-
         let mut column = iced::Column::new();
 
         if self.scanning {
@@ -210,59 +266,98 @@ impl State {
             );
         }
 
-        column = column.push(picklist);
+        let devices: Vec<String> = self.devices.keys().cloned().collect();
+        let device_picklist = iced::pick_list::PickList::new(
+            &mut self.device_list,
+            devices,
+            self.selected_device.clone(),
+            |s| crate::Message::ButtplugMessage(ButtplugMessage::DeviceSelected(s)),
+        );
+
+        column = column.push(device_picklist);
+
+        let feature_picklist = {
+            let mut features = Vec::new();
+
+            if let Some(selected_device) = &self.selected_device {
+                if let Some(selected_device) = self.devices.get(selected_device) {
+                    features = selected_device.mappings.keys().cloned().collect();
+                }
+            }
+
+            iced::pick_list::PickList::new(
+                &mut self.feature_list,
+                features,
+                self.selected_feature.clone(),
+                |s| crate::Message::ButtplugMessage(ButtplugMessage::InteractionSelected(s)),
+            )
+        };
+
+        column = column.push(feature_picklist);
 
         if let Some(selected_device) = &self.selected_device {
-            let mut row = iced::Row::new();
+            if let Some(selected_feature) = &self.selected_feature {
+                let mut row = iced::Row::new();
 
-            {
-                let mut column = iced::Column::new().push(iced::Text::new(" "));
-                for body_part in BodyPart::variants() {
-                    column = column.push(iced::Text::new(format!("{:?}", body_part)))
+                {
+                    let mut column = iced::Column::new().push(iced::Text::new(" "));
+                    for body_part in BodyPart::variants() {
+                        column = column.push(iced::Text::new(format!("{:?}", body_part)))
+                    }
+                    row = row.push(column);
                 }
-                row = row.push(column);
-            }
 
-            for event_type in EventType::variants() {
-                let mut column =
-                    iced::Column::new().push(iced::Text::new(format!("{:?}", event_type)));
+                for event_type in EventType::variants() {
+                    let mut column =
+                        iced::Column::new().push(iced::Text::new(format!("{:?}", event_type)));
 
-                for body_part in BodyPart::variants() {
-                    fn is_device_mapped(
-                        devices: &BTreeMap<String, Device>,
-                        device: &String,
-                        body_part: &BodyPart,
-                        event_type: &EventType,
-                    ) -> Option<()> {
-                        if devices
-                            .get(device)?
-                            .mapping
-                            .get(body_part)?
-                            .get(event_type)
-                            .is_some()
-                        {
-                            Some(())
-                        } else {
-                            None
+                    for body_part in BodyPart::variants() {
+                        fn is_device_mapped(
+                            devices: &BTreeMap<String, Device>,
+                            device: &String,
+                            feature: &DeviceFeature,
+                            body_part: &BodyPart,
+                            event_type: &EventType,
+                        ) -> Option<()> {
+                            if devices
+                                .get(device)?
+                                .mappings
+                                .get(feature)?
+                                .get(body_part)?
+                                .get(event_type)
+                                .is_some()
+                            {
+                                Some(())
+                            } else {
+                                None
+                            }
                         }
+
+                        column = column.push(iced::checkbox::Checkbox::new(
+                            is_device_mapped(
+                                &self.devices,
+                                &selected_device,
+                                &selected_feature,
+                                &body_part,
+                                &event_type,
+                            )
+                            .is_some(),
+                            "",
+                            move |checked| {
+                                crate::Message::ButtplugMessage(
+                                    ButtplugMessage::DeviceMappingChanged(
+                                        body_part, event_type, checked,
+                                    ),
+                                )
+                            },
+                        ));
                     }
 
-                    column = column.push(iced::checkbox::Checkbox::new(
-                        is_device_mapped(&self.devices, &selected_device, &body_part, &event_type)
-                            .is_some(),
-                        "",
-                        move |checked| {
-                            crate::Message::ButtplugMessage(ButtplugMessage::DeviceMappingChanged(
-                                body_part, event_type, checked,
-                            ))
-                        },
-                    ));
+                    row = row.push(column);
                 }
 
-                row = row.push(column);
+                column = column.push(row);
             }
-
-            column = column.push(row);
         }
 
         iced::Container::new(column).into()
