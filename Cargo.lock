@@ -281,6 +281,7 @@ dependencies = [
  "iced",
  "iced_futures",
  "iced_native",
+ "lazy_static",
  "serde",
  "serde_json",
  "sysinfo",

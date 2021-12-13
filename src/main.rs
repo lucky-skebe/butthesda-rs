@@ -1,7 +1,6 @@
 use std::str::FromStr;
 
 use iced::Application;
-use memory::Process;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 mod buttplug;
@@ -10,28 +9,59 @@ mod link_file;
 mod memory;
 mod player_state;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let subscriber = FmtSubscriber::builder()
-        // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
-        // will be written to stdout.
-        .with_env_filter(EnvFilter::from_str("debug,wgpu_core=warn")?)
-        // completes the builder.
-        .finish();
+lazy_static::lazy_static! {
+    static ref RUNTIME: tokio::runtime::Runtime = {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+    };
+}
 
-    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+struct LazyStaticTokioExecutor;
 
-    let process = Process::open(&memory::SKYRIM_SE).unwrap().unwrap();
-
-    if let Ok(Some(process)) = process.inject() {
-        memory::scan_memory(process).await.unwrap();
+impl iced_futures::Executor for LazyStaticTokioExecutor {
+    fn new() -> Result<Self, futures::io::Error>
+    where
+        Self: Sized,
+    {
+        Ok(Self)
     }
 
-    Ok(())
+    fn spawn(&self, future: impl futures::Future<Output = ()> + Send + 'static) {
+        let _ = RUNTIME.spawn(future);
+    }
 
-    // Ok(UI::run(iced::Settings::with_flags(Options {
-    //     file_path: "E:\\ModOrganizer2\\SSE\\mods\\Butthesda\\FunScripts\\link.txt".to_string(),
-    // }))?)
+    fn enter<R>(&self, f: impl FnOnce() -> R) -> R {
+        let _guard = RUNTIME.enter();
+        f()
+    }
+}
+
+fn main() -> anyhow::Result<()> {
+    RUNTIME.block_on(async {
+        let subscriber = FmtSubscriber::builder()
+            // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
+            // will be written to stdout.
+            .with_env_filter(EnvFilter::from_str("debug,wgpu_core=warn")?)
+            // completes the builder.
+            .finish();
+
+        tracing::subscriber::set_global_default(subscriber)
+            .expect("setting default subscriber failed");
+
+        
+
+        Ok(UI::run(iced::Settings::with_flags(Options {
+            file_path: "E:\\ModOrganizer2\\SSE\\mods\\Butthesda\\FunScripts\\link.txt".to_string(),
+        }))?)
+    })
+
+    // let process = Process::open(&memory::SKYRIM_SE).unwrap().unwrap();
+
+    //     if let Ok(Some(process)) = process.inject() {
+    //         memory::scan_memory(process).await.unwrap();
+    //     }
 
     // println!("Pid: {}", process.pid);
 
@@ -139,18 +169,18 @@ pub enum Message {
     Nothing,
 }
 
-pub struct Options {
+struct Options {
     file_path: String,
 }
 
-pub struct UI {
+struct UI {
     player_state: player_state::State,
     pub buttplug: buttplug::State,
     funscripts: Option<funscript::Funscripts>,
 }
 
 impl Application for UI {
-    type Executor = iced_futures::executor::Tokio;
+    type Executor = LazyStaticTokioExecutor;
 
     type Message = Message;
 
