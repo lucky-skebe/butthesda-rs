@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use iced::Application;
+use memory::Process;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 mod buttplug;
@@ -9,7 +10,8 @@ mod link_file;
 mod memory;
 mod player_state;
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let subscriber = FmtSubscriber::builder()
         // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
         // will be written to stdout.
@@ -19,13 +21,17 @@ fn main() -> anyhow::Result<()> {
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-    Ok(UI::run(iced::Settings::with_flags(Options {
-        file_path: "E:\\ModOrganizer2\\SSE\\mods\\Butthesda\\FunScripts\\link.txt".to_string(),
-    }))?)
+    let process = Process::open(&memory::SKYRIM_SE).unwrap().unwrap();
 
-    // let mut process = Process::open(memory::SKYRIM_SE).unwrap().unwrap();
+    if let Ok(Some(process)) = process.inject() {
+        memory::scan_memory(process).await.unwrap();
+    }
 
-    // dbg!(process.inject());
+    Ok(())
+
+    // Ok(UI::run(iced::Settings::with_flags(Options {
+    //     file_path: "E:\\ModOrganizer2\\SSE\\mods\\Butthesda\\FunScripts\\link.txt".to_string(),
+    // }))?)
 
     // println!("Pid: {}", process.pid);
 
