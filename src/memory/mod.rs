@@ -1,4 +1,9 @@
-use std::{ffi::c_void, mem::size_of, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    ffi::c_void,
+    mem::size_of,
+    time::Duration,
+};
 
 use sysinfo::{ProcessExt, System, SystemExt};
 use winapi::um::{
@@ -648,16 +653,16 @@ impl<'a> InjectedProcess<'a> {
         })
     }
 
-    pub fn animation_list(&mut self) -> Result<Vec<(String, u32)>, Error> {
+    pub fn animation_list(&mut self) -> Result<HashSet<(String, u32)>, Error> {
         let mut ptr = self.ptr_data;
-        let mut ret = Vec::new();
+        let mut ret = HashSet::new();
 
         loop {
             let name_address = self.memory.read_ptr(ptr)?;
             if !name_address.is_null() {
                 let name = self.memory.read_str(name_address, 30)?;
                 let amount = self.memory.read::<u32>(ptr.wrapping_offset(0x08))?;
-                ret.push((name, amount));
+                ret.insert((name, amount));
                 ptr = ptr.wrapping_offset(0x10);
             } else {
                 break;
@@ -668,9 +673,17 @@ impl<'a> InjectedProcess<'a> {
     }
 }
 
+fn compate_animations(old: &HashSet<(String, u32)>, new: &HashSet<(String, u32)>) -> Vec<String> {
+    new.difference(old)
+        .map(|(name, count)| name.clone())
+        .collect()
+}
+
 pub async fn scan_memory<'a>(mut process: InjectedProcess<'a>) -> Result<(), Error> {
     let mut timer_interval = tokio::time::interval(Duration::from_millis(10));
     let mut animation_interval = tokio::time::interval(Duration::from_millis(50));
+
+    let mut animations = HashSet::new();
 
     loop {
         tokio::select! {
@@ -683,9 +696,17 @@ pub async fn scan_memory<'a>(mut process: InjectedProcess<'a>) -> Result<(), Err
                 }
             }
             _ = animation_interval.tick() => {
-                let animations = process.animation_list();
+                let new_animations = process.animation_list();
 
-                println!("{:?}", animations);
+                if let Ok(new_animations) = new_animations {
+
+                    let changed = compate_animations(&animations, &new_animations);
+
+                    println!("{:?}", changed);
+                    animations = new_animations;
+                }
+
+
             }
         }
     }
