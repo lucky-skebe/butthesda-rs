@@ -2,7 +2,6 @@ use std::str::FromStr;
 
 use iced::Application;
 use memory::Process;
-use tracing::info;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 mod buttplug;
@@ -25,7 +24,7 @@ async fn main() -> anyhow::Result<()> {
     let process = Process::open(&memory::SKYRIM_SE).unwrap().unwrap();
 
     if let Ok(Some(process)) = process.inject() {
-        memory::scan_memory(process).await;
+        memory::scan_memory(process).await.unwrap();
     }
 
     Ok(())

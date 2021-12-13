@@ -1,9 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    ffi::c_void,
-    mem::size_of,
-    time::Duration,
-};
+use std::{collections::HashSet, ffi::c_void, mem::size_of, time::Duration};
 
 use sysinfo::{ProcessExt, System, SystemExt};
 use winapi::um::{
@@ -27,9 +22,9 @@ pub struct ProcessInfo {
     hook_len: usize,
     inject_offset: isize,
     data_offset: isize,
-    replace_base_address_offset: isize,
-    replace_data_offset: isize,
-    replace_return_offset: isize,
+    replace_base_address_offset: usize,
+    replace_data_offset: usize,
+    replace_return_offset: usize,
     is_64_bit: bool,
 }
 
@@ -257,24 +252,6 @@ impl ProcessMemory {
         }
     }
 
-    fn write<T>(&mut self, address: *mut u8, data: &mut T) -> Result<(), Error>
-    where
-        T: Default,
-    {
-        let len = std::mem::size_of::<T>();
-
-        let (bytes_read, res) = self.write_raw_bytes(address, data as *mut _ as *mut u8, len);
-
-        let _ = res?;
-
-        if bytes_read as usize != len {
-            //err
-            todo!()
-        } else {
-            Ok(())
-        }
-    }
-
     fn read_slice(&mut self, address: *mut u8, slice: &mut [u8]) -> Result<i32, Error> {
         let (bytes_read, result) =
             self.read_raw_bytes(address, slice as *mut _ as *mut u8, slice.len());
@@ -375,7 +352,7 @@ impl ProcessMemory {
         len: usize,
         protect: winapi::shared::minwindef::DWORD,
     ) -> Result<u32, Error> {
-        let mut oldProtect: u32 = 0;
+        let mut old_protect: u32 = 0;
 
         let ok = unsafe {
             VirtualProtectEx(
@@ -383,14 +360,14 @@ impl ProcessMemory {
                 address as *mut _,
                 len,
                 protect,
-                &mut oldProtect as *mut _,
+                &mut old_protect as *mut _,
             )
         };
 
         if ok == 0 {
             Err(unsafe { winapi::um::errhandlingapi::GetLastError() })
         } else {
-            Ok(oldProtect)
+            Ok(old_protect)
         }
     }
 }
@@ -565,9 +542,7 @@ impl<'a> Process<'a> {
 
                 let offset = self.memory.read::<i32>(ptr_plus1)? as isize;
 
-                unsafe {
-                    ptr.offset(offset + 5 + program_len as isize + self.info.data_offset)
-                }
+                unsafe { ptr.offset(offset + 5 + program_len as isize + self.info.data_offset) }
             } else {
                 let ptr_function = self.memory.allocate_memory(ptr, 10000)? as *mut u8;
                 let ptr_data = unsafe { ptr_function.offset(program_len as isize) };
@@ -581,11 +556,11 @@ impl<'a> Process<'a> {
                     .iter()
                     .enumerate()
                 {
-                    bytes[0x0A + offset] = *b;
+                    bytes[self.info.replace_base_address_offset + offset] = *b;
                 }
 
                 for (offset, b) in (ptr_data as usize).to_le_bytes().iter().enumerate() {
-                    bytes[0x4C + offset] = *b;
+                    bytes[self.info.replace_data_offset + offset] = *b;
                 }
 
                 let address_bytes =
@@ -593,7 +568,7 @@ impl<'a> Process<'a> {
                         .to_le_bytes();
                 dbg!(ptr, ptr, ptr_function, address_bytes);
                 for (offset, b) in address_bytes.iter().enumerate() {
-                    bytes[0x86 + offset] = *b;
+                    bytes[self.info.replace_return_offset + offset] = *b;
                 }
 
                 self.memory.write_slice(ptr_function, &mut bytes)?;
@@ -675,7 +650,7 @@ impl<'a> InjectedProcess<'a> {
 
 fn compate_animations(old: &HashSet<(String, u32)>, new: &HashSet<(String, u32)>) -> Vec<String> {
     new.difference(old)
-        .map(|(name, count)| name.clone())
+        .map(|(name, _)| name.clone())
         .collect()
 }
 
