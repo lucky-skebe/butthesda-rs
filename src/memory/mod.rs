@@ -1,7 +1,6 @@
-use std::{ffi::c_void, mem::size_of};
+use std::{collections::HashSet, ffi::c_void, mem::size_of, time::Duration};
 
 use sysinfo::{ProcessExt, System, SystemExt};
-use tracing::debug;
 use winapi::um::{
     memoryapi::{
         ReadProcessMemory, VirtualAllocEx, VirtualProtectEx, VirtualQueryEx, WriteProcessMemory,
@@ -23,9 +22,10 @@ pub struct ProcessInfo {
     hook_len: usize,
     inject_offset: isize,
     data_offset: isize,
-    replace_base_address_offset: isize,
-    replace_data_offset: isize,
-    replace_return_offset: isize,
+    replace_base_address_offset: usize,
+    replace_data_offset: usize,
+    replace_return_offset: usize,
+    is_64_bit: bool,
 }
 
 // pub static SKYRIM: ProcessInfo = ProcessInfo {
@@ -108,6 +108,7 @@ pub static SKYRIM_SE: ProcessInfo = ProcessInfo {
     replace_base_address_offset: 0x0A,
     replace_data_offset: 0x4C,
     replace_return_offset: 0x86,
+    is_64_bit: true,
 };
 
 pub static SKYRIM_VR: ProcessInfo = ProcessInfo {
@@ -157,6 +158,7 @@ pub static SKYRIM_VR: ProcessInfo = ProcessInfo {
     replace_base_address_offset: 0x0A,
     replace_data_offset: 0x4C,
     replace_return_offset: 0x86,
+    is_64_bit: true,
 };
 
 // pub static FALLOUT_4: ProcessInfo = ProcessInfo {
@@ -167,75 +169,14 @@ pub static SKYRIM_VR: ProcessInfo = ProcessInfo {
 //     ],
 // };
 
-type Error = u32;
-
 #[derive(Debug)]
-pub struct ProcessInjector<'a> {
+pub struct ProcessMemory {
     handle: *mut c_void,
-    pub pid: u32,
     base_address: *mut u8,
-    info: &'a ProcessInfo,
+    is_64_bit: bool,
 }
 
-impl<'a> ProcessInjector<'a> {
-    #[tracing::instrument]
-    pub fn open(info: &'a ProcessInfo) -> Result<Option<Self>, Error> {
-        let mut sys = System::new();
-        sys.refresh_processes();
-        let process = sys.process_by_name(info.process_name);
-        if let Some(process) = process.get(0) {
-            let pid = process.pid() as u32;
-
-            unsafe {
-                let handle = OpenProcess(
-                    PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION,
-                    0,
-                    pid,
-                );
-
-                if handle.is_null() {
-                    println!("handle is null");
-                    return Err(winapi::um::errhandlingapi::GetLastError());
-                }
-
-                let mut entry = MODULEENTRY32 {
-                    dwSize: size_of::<MODULEENTRY32>() as u32,
-                    GlblcntUsage: Default::default(),
-                    ProccntUsage: Default::default(),
-                    hModule: std::ptr::null_mut(),
-                    modBaseAddr: std::ptr::null_mut(),
-                    modBaseSize: Default::default(),
-                    szExePath: [0; 260],
-                    szModule: [0; 256],
-                    th32ModuleID: Default::default(),
-                    th32ProcessID: Default::default(),
-                };
-
-                let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE, pid);
-                if snapshot.is_null() {
-                    println!("snapshot is null");
-                    return Err(winapi::um::errhandlingapi::GetLastError());
-                }
-
-                let main_module = Module32First(snapshot, &mut entry as *mut MODULEENTRY32);
-                if main_module == 0 {
-                    println!("get main module error");
-                    return Err(winapi::um::errhandlingapi::GetLastError());
-                }
-
-                Ok(Some(Self {
-                    handle,
-                    pid,
-                    base_address: entry.modBaseAddr,
-                    info,
-                }))
-            }
-        } else {
-            Ok(None)
-        }
-    }
-
-    #[tracing::instrument]
+impl ProcessMemory {
     fn read_raw_bytes(
         &mut self,
         address: *mut u8,
@@ -292,8 +233,7 @@ impl<'a> ProcessInjector<'a> {
         )
     }
 
-    #[tracing::instrument]
-    fn read<T>(&mut self, address: *mut u8) -> Result<T, Error>
+    pub fn read<T>(&mut self, address: *mut u8) -> Result<T, Error>
     where
         T: Default,
     {
@@ -312,25 +252,6 @@ impl<'a> ProcessInjector<'a> {
         }
     }
 
-    fn write<T>(&mut self, address: *mut u8, data: &mut T) -> Result<(), Error>
-    where
-        T: Default,
-    {
-        let len = std::mem::size_of::<T>();
-
-        let (bytes_read, res) = self.write_raw_bytes(address, data as *mut _ as *mut u8, len);
-
-        let _ = res?;
-
-        if bytes_read as usize != len {
-            //err
-            todo!()
-        } else {
-            Ok(())
-        }
-    }
-
-    #[tracing::instrument]
     fn read_slice(&mut self, address: *mut u8, slice: &mut [u8]) -> Result<i32, Error> {
         let (bytes_read, result) =
             self.read_raw_bytes(address, slice as *mut _ as *mut u8, slice.len());
@@ -342,7 +263,6 @@ impl<'a> ProcessInjector<'a> {
         }
     }
 
-    #[tracing::instrument]
     fn write_slice(&mut self, address: *mut u8, slice: &mut [u8]) -> Result<i32, Error> {
         let (bytes_read, result) =
             self.write_raw_bytes(address, slice as *mut _ as *mut u8, slice.len());
@@ -374,7 +294,6 @@ impl<'a> ProcessInjector<'a> {
             )
         } != 0
         {
-            debug!(?mbi.BaseAddress);
             if mbi.State == MEM_FREE {
                 let addr = unsafe {
                     VirtualAllocEx(
@@ -396,26 +315,138 @@ impl<'a> ProcessInjector<'a> {
         Err(0)
     }
 
-    pub fn hook(&mut self, hook: *mut u8, func: *mut u8, len: usize) -> Result<(), Error> {
-        let mut oldProtect = 0u32;
+    pub fn read_ptr(&mut self, address: *mut u8) -> Result<*mut u8, Error> {
+        Ok(if self.is_64_bit {
+            self.read::<u64>(address)? as *mut u8
+        } else {
+            self.read::<u32>(address)? as *mut u8
+        })
+    }
+
+    pub fn read_ptr_chain(&mut self, offsets: &[isize]) -> Result<*mut u8, Error> {
+        let mut addr = self.base_address;
+        for offset in &offsets[..offsets.len() - 1] {
+            addr = self.read_ptr(addr.wrapping_offset(*offset))?;
+        }
+
+        Ok(addr.wrapping_offset(offsets[offsets.len() - 1]))
+    }
+
+    pub fn read_str(&mut self, address: *mut u8, len: usize) -> Result<String, Error> {
+        let mut buff = Vec::new();
+        buff.resize(len, 0);
+        let bytes_read = self.read_slice(address, &mut buff)? as usize;
+
+        let bytes: Vec<_> = buff[..bytes_read]
+            .into_iter()
+            .take_while(|b| **b != 0)
+            .cloned()
+            .collect();
+
+        Ok(String::from_utf8(bytes).unwrap())
+    }
+
+    pub fn virtual_protect_ex(
+        &self,
+        address: *mut u8,
+        len: usize,
+        protect: winapi::shared::minwindef::DWORD,
+    ) -> Result<u32, Error> {
+        let mut old_protect: u32 = 0;
+
         let ok = unsafe {
             VirtualProtectEx(
                 self.handle,
-                hook as *mut _,
+                address as *mut _,
                 len,
-                PAGE_READWRITE,
-                &mut oldProtect as *mut _,
+                protect,
+                &mut old_protect as *mut _,
             )
         };
 
         if ok == 0 {
-            return Err(unsafe { winapi::um::errhandlingapi::GetLastError() });
+            Err(unsafe { winapi::um::errhandlingapi::GetLastError() })
+        } else {
+            Ok(old_protect)
         }
+    }
+}
+
+type Error = u32;
+
+#[derive(Debug)]
+pub struct Process<'a> {
+    memory: ProcessMemory,
+    pid: u32,
+    info: &'a ProcessInfo,
+}
+
+impl<'a> Process<'a> {
+    #[tracing::instrument]
+    pub fn open(info: &'a ProcessInfo) -> Result<Option<Self>, Error> {
+        let mut sys = System::new();
+        sys.refresh_processes();
+        let process = sys.process_by_name(info.process_name);
+        if let Some(process) = process.get(0) {
+            let pid = process.pid() as u32;
+
+            unsafe {
+                let handle = OpenProcess(
+                    PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION,
+                    0,
+                    pid,
+                );
+
+                if handle.is_null() {
+                    println!("handle is null");
+                    return Err(winapi::um::errhandlingapi::GetLastError());
+                }
+
+                let mut entry = MODULEENTRY32 {
+                    dwSize: size_of::<MODULEENTRY32>() as u32,
+                    GlblcntUsage: Default::default(),
+                    ProccntUsage: Default::default(),
+                    hModule: std::ptr::null_mut(),
+                    modBaseAddr: std::ptr::null_mut(),
+                    modBaseSize: Default::default(),
+                    szExePath: [0; 260],
+                    szModule: [0; 256],
+                    th32ModuleID: Default::default(),
+                    th32ProcessID: Default::default(),
+                };
+
+                let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE, pid);
+                if snapshot.is_null() {
+                    println!("snapshot is null");
+                    return Err(winapi::um::errhandlingapi::GetLastError());
+                }
+
+                let main_module = Module32First(snapshot, &mut entry as *mut MODULEENTRY32);
+                if main_module == 0 {
+                    println!("get main module error");
+                    return Err(winapi::um::errhandlingapi::GetLastError());
+                }
+
+                let memory = ProcessMemory {
+                    base_address: entry.modBaseAddr,
+                    handle,
+                    is_64_bit: info.is_64_bit,
+                };
+
+                Ok(Some(Self { pid, info, memory }))
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn hook(&mut self, hook: *mut u8, func: *mut u8, len: usize) -> Result<(), Error> {
+        let old_protect = self.memory.virtual_protect_ex(hook, len, PAGE_READWRITE)?;
 
         let mut empty_bytes = Vec::with_capacity(len);
         empty_bytes.resize(len, 0x90u8);
 
-        self.write_slice(hook, &mut empty_bytes)?;
+        self.memory.write_slice(hook, &mut empty_bytes)?;
 
         let byte_jump_delta = (func as isize - hook as isize - 5).to_le_bytes();
 
@@ -427,82 +458,9 @@ impl<'a> ProcessInjector<'a> {
             byte_jump_delta[3],
         ];
 
-        self.write_slice(hook, &mut managed_array)?;
+        self.memory.write_slice(hook, &mut managed_array)?;
 
-        let ok = unsafe {
-            VirtualProtectEx(
-                self.handle,
-                hook as *mut _,
-                len,
-                oldProtect,
-                &mut oldProtect as *mut _,
-            )
-        };
-
-        if ok == 0 {
-            return Err(unsafe { winapi::um::errhandlingapi::GetLastError() });
-        }
-
-        Ok(())
-    }
-
-    #[tracing::instrument()]
-    pub fn inject(&mut self) -> Result<(), u32> {
-        if let Ok(Some(ptr)) = self.find_pattern() {
-            let ptr = unsafe { ptr.offset(self.info.inject_offset) };
-
-            let program = self.info.program;
-            let program_len = program.len();
-
-            let check = self.read::<u8>(ptr)?;
-
-            debug!(check);
-
-            let data_ptr = if check == 0xE9 {
-                let ptr_plus1 = unsafe { ptr.offset(0x01) };
-
-                let offset = self.read::<u32>(ptr_plus1)?;
-
-                unsafe {
-                    ptr.offset(offset as isize + 5 + program_len as isize + self.info.data_offset)
-                }
-            } else {
-                let ptr_function = self.allocate_memory(ptr, 10000)? as *mut u8;
-                let ptr_data = unsafe { ptr_function.offset(program_len as isize) };
-
-                let mut bytes = [0u8; 10000];
-
-                bytes[0..program_len].copy_from_slice(&program);
-
-                for (offset, b) in (self.base_address as usize)
-                    .to_le_bytes()
-                    .iter()
-                    .enumerate()
-                {
-                    bytes[0x0A + offset] = *b;
-                }
-
-                for (offset, b) in (ptr_data as usize).to_le_bytes().iter().enumerate() {
-                    bytes[0x4C + offset] = *b;
-                }
-
-                let address_bytes =
-                    (ptr as usize + self.info.hook_len - ptr_function as usize - 0x8A)
-                        .to_le_bytes();
-                dbg!(ptr, ptr, ptr_function, address_bytes);
-                for (offset, b) in address_bytes.iter().enumerate() {
-                    bytes[0x86 + offset] = *b;
-                }
-
-                self.write_slice(ptr_function, &mut bytes)?;
-
-                self.hook(ptr, ptr_function, self.info.hook_len)?;
-
-                ptr_data.wrapping_offset(self.info.data_offset)
-            };
-
-            dbg!(data_ptr);
-        };
+        self.memory.virtual_protect_ex(hook, len, old_protect)?;
 
         Ok(())
     }
@@ -514,15 +472,18 @@ impl<'a> ProcessInjector<'a> {
 
         let mut offset = 0;
 
-        let mut bytes_read = 0;
+        let bytes_read;
 
         unsafe {
-            bytes_read = self.read_slice(self.base_address.offset(offset), &mut buffer)? as usize;
+            bytes_read = self
+                .memory
+                .read_slice(self.memory.base_address.offset(offset), &mut buffer)?
+                as usize;
         }
 
         while bytes_read == 1024 {
-            let bytes_read = self.read_slice(
-                unsafe { self.base_address.offset(offset + 1024) },
+            let bytes_read = self.memory.read_slice(
+                unsafe { self.memory.base_address.offset(offset + 1024) },
                 &mut next,
             )? as usize;
 
@@ -555,7 +516,7 @@ impl<'a> ProcessInjector<'a> {
                 }
 
                 if all_matched {
-                    return Ok(Some(unsafe { self.base_address.offset(offset) }));
+                    return Ok(Some(unsafe { self.memory.base_address.offset(offset) }));
                 }
 
                 offset += 1;
@@ -566,12 +527,162 @@ impl<'a> ProcessInjector<'a> {
 
         Ok(None)
     }
+
+    pub fn inject(mut self) -> Result<Option<InjectedProcess<'a>>, u32> {
+        let ptr_data = if let Ok(Some(ptr)) = self.find_pattern() {
+            let ptr = unsafe { ptr.offset(self.info.inject_offset) };
+
+            let program = self.info.program;
+            let program_len = program.len();
+
+            let check = self.memory.read::<u8>(ptr)?;
+
+            let ptr_data = if check == 0xE9 {
+                let ptr_plus1 = unsafe { ptr.offset(0x01) };
+
+                let offset = self.memory.read::<i32>(ptr_plus1)? as isize;
+
+                unsafe { ptr.offset(offset + 5 + program_len as isize + self.info.data_offset) }
+            } else {
+                let ptr_function = self.memory.allocate_memory(ptr, 10000)? as *mut u8;
+                let ptr_data = unsafe { ptr_function.offset(program_len as isize) };
+
+                let mut bytes = [0u8; 10000];
+
+                bytes[0..program_len].copy_from_slice(&program);
+
+                for (offset, b) in (self.memory.base_address as usize)
+                    .to_le_bytes()
+                    .iter()
+                    .enumerate()
+                {
+                    bytes[self.info.replace_base_address_offset + offset] = *b;
+                }
+
+                for (offset, b) in (ptr_data as usize).to_le_bytes().iter().enumerate() {
+                    bytes[self.info.replace_data_offset + offset] = *b;
+                }
+
+                let address_bytes =
+                    (ptr as usize + self.info.hook_len - ptr_function as usize - 0x8A)
+                        .to_le_bytes();
+                dbg!(ptr, ptr, ptr_function, address_bytes);
+                for (offset, b) in address_bytes.iter().enumerate() {
+                    bytes[self.info.replace_return_offset + offset] = *b;
+                }
+
+                self.memory.write_slice(ptr_function, &mut bytes)?;
+
+                self.hook(ptr, ptr_function, self.info.hook_len)?;
+
+                ptr_data.wrapping_offset(self.info.data_offset)
+            };
+
+            Some(ptr_data)
+        } else {
+            None
+        };
+
+        Ok(ptr_data.map(|ptr_data| InjectedProcess {
+            memory: self.memory,
+            pid: self.pid,
+            ptr_data,
+            ptr_timer: None,
+            timer_offsets: self.info.timer_offsets,
+        }))
+    }
 }
 
-impl<'a> Drop for ProcessInjector<'a> {
+impl Drop for ProcessMemory {
     fn drop(&mut self) {
         unsafe {
             winapi::um::handleapi::CloseHandle(self.handle);
+        }
+    }
+}
+
+pub struct InjectedProcess<'a> {
+    memory: ProcessMemory,
+    pid: u32,
+    ptr_data: *mut u8,
+    timer_offsets: &'a [isize],
+    ptr_timer: Option<*mut u8>,
+}
+
+impl<'a> InjectedProcess<'a> {
+    fn timer_addr(&mut self) -> Result<Option<*mut u8>, Error> {
+        if self.ptr_timer.is_none() {
+            self.ptr_timer = Some(self.memory.read_ptr_chain(self.timer_offsets)?);
+        }
+
+        Ok(self.ptr_timer)
+    }
+
+    pub fn timer(&mut self) -> Result<Option<f32>, Error> {
+        let addr = self.timer_addr()?;
+
+        Ok(if let Some(addr) = addr {
+            Some(self.memory.read::<f32>(addr)?)
+        } else {
+            None
+        })
+    }
+
+    pub fn animation_list(&mut self) -> Result<HashSet<(String, u32)>, Error> {
+        let mut ptr = self.ptr_data;
+        let mut ret = HashSet::new();
+
+        loop {
+            let name_address = self.memory.read_ptr(ptr)?;
+            if !name_address.is_null() {
+                let name = self.memory.read_str(name_address, 30)?;
+                let amount = self.memory.read::<u32>(ptr.wrapping_offset(0x08))?;
+                ret.insert((name, amount));
+                ptr = ptr.wrapping_offset(0x10);
+            } else {
+                break;
+            }
+        }
+
+        Ok(ret)
+    }
+}
+
+fn compate_animations(old: &HashSet<(String, u32)>, new: &HashSet<(String, u32)>) -> Vec<String> {
+    new.difference(old)
+        .map(|(name, _)| name.clone())
+        .collect()
+}
+
+pub async fn scan_memory<'a>(mut process: InjectedProcess<'a>) -> Result<(), Error> {
+    let mut timer_interval = tokio::time::interval(Duration::from_millis(10));
+    let mut animation_interval = tokio::time::interval(Duration::from_millis(50));
+
+    let mut animations = HashSet::new();
+
+    loop {
+        tokio::select! {
+            _ = timer_interval.tick() => {
+                match process.timer()
+                {
+                    Ok(Some(timer)) => {},//println!("{}", timer),
+                    Ok(None) => {}
+                    Err(_) => {},
+                }
+            }
+            _ = animation_interval.tick() => {
+                let new_animations = process.animation_list();
+
+                if let Ok(new_animations) = new_animations {
+
+                    let changed = compate_animations(&animations, &new_animations);
+
+                    println!("{:?}", changed);
+                    animations = new_animations;
+                }
+
+
+            }
         }
     }
 }
