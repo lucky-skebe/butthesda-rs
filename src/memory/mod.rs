@@ -558,10 +558,10 @@ impl<'a> Process<'a> {
             let ptr_data = if check == 0xE9 {
                 let ptr_plus1 = unsafe { ptr.offset(0x01) };
 
-                let offset = self.memory.read::<u32>(ptr_plus1)?;
+                let offset = self.memory.read::<i32>(ptr_plus1)? as isize;
 
                 unsafe {
-                    ptr.offset(offset as isize + 5 + program_len as isize + self.info.data_offset)
+                    ptr.offset(offset + 5 + program_len as isize + self.info.data_offset)
                 }
             } else {
                 let ptr_function = self.memory.allocate_memory(ptr, 10000)? as *mut u8;
