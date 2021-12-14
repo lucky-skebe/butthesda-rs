@@ -1,13 +1,15 @@
 use std::str::FromStr;
 
 use iced::Application;
+use serde::{Deserialize, Serialize};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 mod buttplug;
+mod device;
 mod funscript;
 mod link_file;
-mod memory;
 mod player_state;
+mod process;
 
 lazy_static::lazy_static! {
     static ref RUNTIME: tokio::runtime::Runtime = {
@@ -50,7 +52,9 @@ fn main() -> anyhow::Result<()> {
         tracing::subscriber::set_global_default(subscriber)
             .expect("setting default subscriber failed");
 
-        
+        let (sender, receiver) = tokio::sync::mpsc::channel(64);
+
+        let _handle = tokio::spawn(device::run(receiver));
 
         Ok(UI::run(iced::Settings::with_flags(Options {
             file_path: "E:\\ModOrganizer2\\SSE\\mods\\Butthesda\\FunScripts\\link.txt".to_string(),
@@ -83,7 +87,7 @@ fn main() -> anyhow::Result<()> {
     // }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BodyPart {
     Head,
     Body,
@@ -127,7 +131,7 @@ impl BodyPart {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EventType {
     Shock,
     Damage,

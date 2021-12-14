@@ -62,7 +62,7 @@ pub struct SLAEvent {
 #[serde(tag = "event")]
 pub enum DDEvent {
     #[serde(rename = "(de)equiped")]
-    EquipmentChanged(EquipmentChanged),
+    EquipmentChanged(EquipmentState),
     #[serde(rename = "vibrate effect start")]
     VibrationStart(VibrationStart),
     #[serde(rename = "vibrate effect stop")]
@@ -76,7 +76,7 @@ pub enum DDEvent {
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
-pub struct EquipmentChanged {
+pub struct EquipmentState {
     pub vaginal: EquipmentType,
     pub anal: EquipmentType,
     #[serde(rename = "vaginalPiecing")]

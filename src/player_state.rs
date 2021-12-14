@@ -1,6 +1,6 @@
 use iced::Subscription;
 
-use crate::link_file::{EquipmentChanged as EqipmentState, Event, LinkFileScanner};
+use crate::link_file::{EquipmentState, Event, LinkFileScanner};
 
 #[derive(Debug, Clone)]
 enum GameState {
@@ -23,7 +23,7 @@ pub enum Message {
 #[derive(Debug)]
 pub struct State {
     arousal: u8,
-    equipment_state: EqipmentState,
+    equipment_state: EquipmentState,
     detected_mods: Vec<String>,
     game_status: GameState,
     file_path: String,

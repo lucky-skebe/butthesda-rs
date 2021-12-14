@@ -10,6 +10,7 @@ use buttplug::{
     core::messages::ButtplugCurrentSpecDeviceMessageType,
 };
 use iced::Subscription;
+use serde::{Serialize, Deserialize};
 
 use crate::{BodyPart, EventType};
 
@@ -42,16 +43,16 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-enum DeviceInteraction {
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum DeviceInteraction {
     Vibrate,
     Rotate,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct DeviceFeature {
-    interaction: DeviceInteraction,
-    index: u32,
+    pub interaction: DeviceInteraction,
+    pub index: u32,
 }
 
 impl Display for DeviceFeature {
