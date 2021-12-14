@@ -272,10 +272,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f1e260c3a9040a7c19a12468758f4c16f31a81a1fe087482be9570ec864bb6c"
 
 [[package]]
-name = "buthesda-rs"
+name = "butthesda-rs"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "buttplug",
  "futures",
  "iced",
@@ -286,6 +287,7 @@ dependencies = [
  "serde_json",
  "sysinfo",
  "tokio",
+ "tokio-stream",
  "tracing",
  "tracing-subscriber",
  "winapi 0.3.9",

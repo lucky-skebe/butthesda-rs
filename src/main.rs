@@ -1,15 +1,31 @@
-use std::str::FromStr;
+use std::{hash::Hash, str::FromStr, sync::Arc};
 
 use iced::Application;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
-mod buttplug;
-mod device;
-mod funscript;
-mod link_file;
-mod player_state;
-mod process;
+pub mod buttplug;
+pub mod device;
+// pub mod funscript;
+// pub mod link_file;
+// pub mod process;
+mod ui;
+pub mod util;
+
+pub type MessageBus = tokio::sync::broadcast::Sender<Message>;
+
+#[derive(Debug, Clone)]
+pub enum Message {
+    ButtplugOut(buttplug::ButtplugOutMessage),
+    ButtplugIn(::buttplug::client::ButtplugClientEvent),
+    DeviceConfiguration(device::ConfigMessage),
+}
+
+impl From<::buttplug::client::ButtplugClientEvent> for Message {
+    fn from(from: ::buttplug::client::ButtplugClientEvent) -> Self {
+        Self::ButtplugIn(from)
+    }
+}
 
 lazy_static::lazy_static! {
     static ref RUNTIME: tokio::runtime::Runtime = {
@@ -20,7 +36,7 @@ lazy_static::lazy_static! {
     };
 }
 
-struct LazyStaticTokioExecutor;
+pub struct LazyStaticTokioExecutor;
 
 impl iced_futures::Executor for LazyStaticTokioExecutor {
     fn new() -> Result<Self, futures::io::Error>
@@ -43,48 +59,35 @@ impl iced_futures::Executor for LazyStaticTokioExecutor {
 fn main() -> anyhow::Result<()> {
     RUNTIME.block_on(async {
         let subscriber = FmtSubscriber::builder()
-            // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
-            // will be written to stdout.
-            .with_env_filter(EnvFilter::from_str("debug,wgpu_core=warn")?)
-            // completes the builder.
+            .with_env_filter(EnvFilter::from_str("error,butthesda_rs=debug")?)
             .finish();
 
         tracing::subscriber::set_global_default(subscriber)
             .expect("setting default subscriber failed");
 
-        let (sender, receiver) = tokio::sync::mpsc::channel(64);
+        let (message_bus, message_bus_handle) = tokio::sync::broadcast::channel::<Message>(100);
 
-        let _handle = tokio::spawn(device::run(receiver));
+        let _buttplug_handle = tokio::spawn(buttplug::run(message_bus.clone()));
 
-        Ok(UI::run(iced::Settings::with_flags(Options {
-            file_path: "E:\\ModOrganizer2\\SSE\\mods\\Butthesda\\FunScripts\\link.txt".to_string(),
+        // let _handle = tokio::spawn(device::run(message_bus_handle));
+
+        Ok(ui::UI::run(iced::Settings::with_flags(ui::Options {
+            message_bus: Arc::new(message_bus),
         }))?)
     })
+}
 
-    // let process = Process::open(&memory::SKYRIM_SE).unwrap().unwrap();
+#[derive(Debug, PartialEq, Eq)]
+enum GameState {
+    Stopped,
+    Running,
+    Paused,
+}
 
-    //     if let Ok(Some(process)) = process.inject() {
-    //         memory::scan_memory(process).await.unwrap();
-    //     }
-
-    // println!("Pid: {}", process.pid);
-
-    // let (sender, receiver) = tokio::sync::mpsc::channel(100);
-
-    // let res = tokio::try_join! {
-    //     {
-    //         let sender = sender.clone();
-    //         link_file::run(
-    //         "E:\\ModOrganizer2\\SSE\\mods\\Butthesda\\FunScripts\\link.txt",
-    //         sender,
-    //     )}
-    // };
-
-    // if let Err(e) = res {
-    //     Err(e)
-    // } else {
-    //     Ok(())
-    // }
+impl Default for GameState {
+    fn default() -> Self {
+        Self::Stopped
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -160,92 +163,5 @@ impl EventType {
             Self::Vibrate,
             Self::Equip,
         ]
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum Message {
-    PlayerState(player_state::Message),
-    SomethingBroke(String),
-    FileEvent(link_file::Event),
-    FunscriptsLoaded(funscript::Funscripts),
-    ButtplugMessage(buttplug::ButtplugMessage),
-    Nothing,
-}
-
-struct Options {
-    file_path: String,
-}
-
-struct UI {
-    player_state: player_state::State,
-    pub buttplug: buttplug::State,
-    funscripts: Option<funscript::Funscripts>,
-}
-
-impl Application for UI {
-    type Executor = LazyStaticTokioExecutor;
-
-    type Message = Message;
-
-    type Flags = Options;
-
-    fn new(flags: Self::Flags) -> (Self, iced::Command<Self::Message>) {
-        let (buttplug, buttplug_command) = buttplug::State::new();
-        (
-            Self {
-                player_state: player_state::State::new(flags.file_path),
-                funscripts: None,
-                buttplug,
-            },
-            iced::Command::batch([
-                buttplug_command,
-                iced::Command::perform(
-                    funscript::Funscripts::load(
-                        "E:\\ModOrganizer2\\SSE\\mods\\Butthesda\\FunScripts",
-                    ),
-                    |f| Message::FunscriptsLoaded(f.unwrap()),
-                ),
-            ]),
-        )
-    }
-
-    fn title(&self) -> String {
-        "Butthesda".to_string()
-    }
-
-    fn update(
-        &mut self,
-        message: Self::Message,
-        _clipboard: &mut iced::Clipboard,
-    ) -> iced::Command<Self::Message> {
-        match message {
-            Message::PlayerState(message) => self.player_state.update(message),
-            Message::SomethingBroke(_s) => iced::Command::none(),
-            Message::FileEvent(ev) => self.player_state.handle(ev),
-            Message::FunscriptsLoaded(f) => {
-                self.funscripts = Some(f);
-                iced::Command::none()
-            }
-            Message::ButtplugMessage(ev) => self.buttplug.update(ev),
-            Message::Nothing => iced::Command::none(),
-        }
-    }
-
-    fn subscription(&self) -> iced::Subscription<Self::Message> {
-        let subscriptions = [
-            self.player_state.subscription(),
-            self.buttplug.subscription(),
-        ];
-
-        iced::Subscription::batch(subscriptions)
-    }
-
-    fn view(&mut self) -> iced::Element<'_, Self::Message> {
-        let row = iced::Row::new()
-            .push(self.player_state.view())
-            .push(self.buttplug.view());
-
-        iced::Container::new(row).into()
     }
 }

@@ -1,5 +1,5 @@
 [package]
-name = "buthesda-rs"
+name = "butthesda-rs"
 version = "0.1.0"
 edition = "2018"
 
@@ -27,6 +27,7 @@ tokio = { version = "1.14", features = [
     "macros",
     "io-util"
 ] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 anyhow = "1.0"
 iced = "0.3"
 iced_futures = { version = "0.3", features = ["tokio"] }
@@ -34,3 +35,4 @@ iced_native = "0.4"
 futures = { version = "0.3" }
 buttplug = "5.1"
 lazy_static = "1.4"
+async-trait = "0.1"

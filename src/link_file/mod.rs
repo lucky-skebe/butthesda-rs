@@ -1,10 +1,13 @@
 mod contracts;
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 pub use contracts::*;
 use tokio::io::AsyncReadExt;
 use tracing::{debug, error, info};
+
+use crate::device::LogicMessage;
+use crate::util::MaybeFrom;
 
 struct RunningState {
     file: tokio::fs::File,
@@ -263,5 +266,76 @@ where
                 }
             },
         ))
+    }
+}
+
+pub async fn run(
+    link_file_path: String,
+    sender: Arc<tokio::sync::broadcast::Sender<Event>>,
+    sender2: Arc<tokio::sync::mpsc::Sender<crate::device::LogicMessage>>,
+) -> anyhow::Result<()> {
+    let mut file = tokio::fs::File::open(link_file_path).await?;
+
+    let mut content = String::new();
+
+    let mut loading = false;
+    let mut old_events = true;
+
+    loop {
+        let bytes = file.read_to_string(&mut content).await?;
+        if bytes != 0 {
+            let content = content
+                .replace("':TRUE", "':true")
+                .replace("':False", "':false")
+                .replace("'", "\"");
+
+            for line in content.lines() {
+                if line.starts_with("{") {
+                    if line != "{}" {
+                        let event = serde_json::from_str::<Event>(line);
+
+                        match event {
+                            Ok(Event::Game(GameEvent::LoadingSaveDone)) => {
+                                loading = false;
+                            }
+                            Ok(ev @ Event::Game(GameEvent::LoadingSave(_))) => {
+                                loading = true;
+                                if let Some(message) = LogicMessage::maybe_from(ev.clone()) {
+                                    sender2.send(message).await?;
+                                }
+                                sender.send(ev)?;
+                            }
+                            Ok(ev @ Event::Sla(_))
+                            | Ok(ev @ Event::DD(DDEvent::EquipmentChanged(_))) => {
+                                info!(?ev, "Handling Event");
+
+                                if let Some(message) = LogicMessage::maybe_from(ev.clone()) {
+                                    sender2.send(message).await?;
+                                }
+                                sender.send(ev)?;
+                            }
+                            Ok(ev) if loading | old_events => {
+                                debug!(?ev, "Skipping Event");
+                            }
+                            Ok(ev) => {
+                                info!(?ev, "Handling Event");
+
+                                if let Some(message) = LogicMessage::maybe_from(ev.clone()) {
+                                    sender2.send(message).await?;
+                                }
+                                sender.send(ev)?;
+                            }
+                            Err(e) => error!(?e, ?line, "Could not Parse Event"),
+                        }
+                    }
+                } else {
+                    info!("{}", line);
+                }
+            }
+        }
+
+        old_events = false;
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
