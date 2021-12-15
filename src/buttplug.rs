@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all ="camelCase")]
 pub enum DeviceInteraction {
     Vibrate,
     Rotate,

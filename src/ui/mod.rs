@@ -1,6 +1,8 @@
 use futures::StreamExt;
 use iced::{Application, Length};
-use std::sync::Arc;
+use serde::Deserialize;
+use std::{path::PathBuf, sync::Arc};
+use tokio::io::AsyncReadExt;
 use tracing::error;
 
 use crate::{
@@ -106,6 +108,22 @@ impl MaybeFrom<crate::Message> for UIMessage {
     }
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct Config {
+    game_select: game_select::Config,
+    devices: devices::Config,
+}
+
+impl Config {
+    async fn load(path: PathBuf) -> anyhow::Result<Self> {
+        let mut file = tokio::fs::File::open(path).await?;
+        let mut content = String::new();
+        file.read_to_string(&mut content).await?;
+        let config = serde_json::from_str::<Config>(&content)?;
+        Ok(config)
+    }
+}
+
 // MessageBus,
 // PlayerState(debug::Message),
 // Error(String),
@@ -119,20 +137,11 @@ pub enum UIMessage {
     GameSelect(game_select::Message),
     Devices(devices::Message),
     SelectPage(Page),
-    Error(String),
-}
-
-impl<T, Err> From<Result<T, Err>> for UIMessage
-where
-    Err: std::fmt::Display,
-    T: Into<UIMessage>,
-{
-    fn from(r: Result<T, Err>) -> Self {
-        match r {
-            Ok(m) => m.into(),
-            Err(err) => UIMessage::Error(format!("{}", err)),
-        }
-    }
+    Error(String, bool),
+    Save,
+    Close,
+    Load(PathBuf),
+    Loaded(Config),
 }
 
 impl From<game_select::Message> for UIMessage {
@@ -162,6 +171,8 @@ pub struct UI {
     btn_devices: iced::button::State,
     btn_start: iced::button::State,
     btn_next: iced::button::State,
+    btn_load: iced::button::State,
+    btn_save: iced::button::State,
     close: bool,
 }
 
@@ -172,6 +183,17 @@ impl UI {
             Page::Devices => self.devices.is_ok(),
             Page::Start => self.start.is_ok(),
         }
+    }
+
+    fn load(&mut self, config: &Config) {
+        self.game_select.load(&config.game_select);
+    }
+
+    fn save(&self) -> Option<Config> {
+        Some(Config {
+            devices: self.devices.save(),
+            game_select: self.game_select.save()?,
+        })
     }
 }
 
@@ -195,6 +217,8 @@ impl Application for UI {
                 btn_devices: iced::button::State::new(),
                 btn_start: iced::button::State::new(),
                 btn_next: iced::button::State::new(),
+                btn_load: iced::button::State::new(),
+                btn_save: iced::button::State::new(),
                 close: false,
             },
             iced::Command::perform(async {}, |_| {
@@ -218,33 +242,49 @@ impl Application for UI {
         message: Self::Message,
         _clipboard: &mut iced::Clipboard,
     ) -> iced::Command<Self::Message> {
+        let load = |path| Config::load(path);
+
         match message {
             UIMessage::GameSelect(message) => self.game_select.update(message).map(Into::into),
             UIMessage::SelectPage(p) => {
                 self.page = p;
                 iced::Command::none()
             }
-            UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::DeviceConnected(name, (vibrators, rotators, actuators)))) => {
-                self.devices.add_device(name, vibrators, rotators, actuators);
+            UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::DeviceConnected(
+                name,
+                (vibrators, rotators, actuators),
+            ))) => {
+                self.devices
+                    .add_device(name, vibrators, rotators, actuators);
                 iced::Command::none()
-            },
-            UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::DeviceDisconnected(name))) => {
+            }
+            UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::DeviceDisconnected(
+                name,
+            ))) => {
                 self.devices.remove_device(name);
                 iced::Command::none()
             }
             UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::StartScanning)) => {
-                self.devices.scanning= true;
+                self.devices.scanning = true;
                 iced::Command::none()
             }
             UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::StopScanning)) => {
-                self.devices.scanning=false;
+                self.devices.scanning = false;
                 iced::Command::none()
             }
             UIMessage::InMessage(InMessage::Device(crate::device::ConfigMessage::Change(c))) => {
-                self.devices.device_config.set_should_handle(c.device, c.feature, c.body_part, c.event_type, c.should_handle);
+                self.devices.device_config.set_should_handle(
+                    c.device,
+                    c.feature,
+                    c.body_part,
+                    c.event_type,
+                    c.should_handle,
+                );
                 iced::Command::none()
             }
-            UIMessage::InMessage(InMessage::Device(crate::device::ConfigMessage::Complete(config))) => {
+            UIMessage::InMessage(InMessage::Device(crate::device::ConfigMessage::Complete(
+                config,
+            ))) => {
                 self.devices.device_config = config;
                 iced::Command::none()
             }
@@ -256,10 +296,29 @@ impl Application for UI {
                 iced::Command::none()
             }
             UIMessage::Devices(message) => self.devices.update(message).map(Into::into),
-            UIMessage::Error(e) => {
+            UIMessage::Error(e, close) => {
                 error!("{}", e);
+                self.close = close;
+                iced::Command::none()
+            }
+            UIMessage::Save => {
+                let config = self.save();
+                dbg!(config);
+                
+                iced::Command::none()
+            }
+            UIMessage::Close => {
                 self.close = true;
                 iced::Command::none()
+            }
+            UIMessage::Load(path) => iced::Command::perform(load(path), |m| match m{
+                Ok(c) => UIMessage::Loaded(c),
+                Err(e) => UIMessage::Error(format!("{}", e), false),
+            }),
+            UIMessage::Loaded(config) => {
+                self.load(&config);
+
+                iced::Command::perform(async { UIMessage::OutMessage(crate::Message::DeviceConfiguration(crate::device::ConfigMessage::Complete(config.devices))) }, |m| m)
             }
             // Message::PlayerState(message) => self.player_state.update(message),
             // Message::Error(s) => {
@@ -291,16 +350,23 @@ impl Application for UI {
 
         // iced::Subscription::batch(subscriptions)
 
-        iced::Subscription::from_recipe(StreamSubscription::new(
-            tokio_stream::wrappers::BroadcastStream::new(self.message_bus.subscribe()).filter_map(
-                |r| async {
-                    match r {
-                        Ok(m) => UIMessage::maybe_from(m),
-                        Err(e) => Some(UIMessage::Error(format!("{}", e))),
-                    }
-                },
-            ),
-        ))
+        iced::Subscription::batch([
+            iced_native::subscription::events_with(|e, _| match e {
+                iced_native::Event::Window(iced_native::window::Event::FileDropped(path)) => {
+                    Some(UIMessage::Load(path))
+                }
+                _ => None,
+            }),
+            iced::Subscription::from_recipe(StreamSubscription::new(
+                tokio_stream::wrappers::BroadcastStream::new(self.message_bus.subscribe())
+                    .filter_map(|r| async {
+                        match r {
+                            Ok(m) => UIMessage::maybe_from(m),
+                            Err(e) => Some(UIMessage::Error(format!("{}", e), true)),
+                        }
+                    }),
+            )),
+        ])
     }
 
     fn view(&mut self) -> iced::Element<'_, Self::Message> {
@@ -346,12 +412,23 @@ impl Application for UI {
             .push(iced::Space::with_width(Length::Fill))
             .push(btn_next);
 
-        let column = iced::Column::new()
+        let header = iced::Row::new()
             .push(match self.page {
                 Page::GameSelect => iced::Text::new("Select the game you are playing:"),
                 Page::Devices => iced::Text::new("Map your Devices to Events:"),
                 Page::Start => iced::Text::new("Play the Game:"),
             })
+            .push(iced::Space::with_width(Length::Fill))
+            .push(iced::Button::new(
+                &mut self.btn_load,
+                iced::Text::new("Load"),
+            ))
+            .push(
+                iced::Button::new(&mut self.btn_save, iced::Text::new("Save"))
+            );
+
+        let column = iced::Column::new()
+            .push(header)
             .push(match self.page {
                 Page::GameSelect => iced::Row::new().push(self.game_select.view()),
                 Page::Devices => iced::Row::new().push(self.devices.view()),

@@ -1,0 +1,15 @@
+{
+  "game_select": {
+    "game": "SkyrimSE",
+    "mod_path": "E:\\ModOrganizer2\\SSE\\mods\\Butthesda"
+  },
+  "devices": {
+    "anal": {
+      "shock": {
+        "XBox (XInput) Compatible Gamepad": [
+          { "interaction": "vibrate", "index": 1 }
+        ]
+      }
+    }
+  }
+}

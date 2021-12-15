@@ -1,6 +1,8 @@
 use std::{hash::Hash, str::FromStr, sync::Arc};
 
 use iced::Application;
+use iced_native::Widget;
+use image::ImageDecoder;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
@@ -13,6 +15,8 @@ mod ui;
 pub mod util;
 
 pub type MessageBus = tokio::sync::broadcast::Sender<Message>;
+
+const ICON: &[u8] = include_bytes!("../app.ico");
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -71,9 +75,25 @@ fn main() -> anyhow::Result<()> {
 
         // let _handle = tokio::spawn(device::run(message_bus_handle));
 
-        Ok(ui::UI::run(iced::Settings::with_flags(ui::Options {
+        let icon_reader =
+            image::io::Reader::with_format(std::io::Cursor::new(ICON), image::ImageFormat::Ico);
+
+        let icon = icon_reader.decode().unwrap();
+        let icon = icon.into_rgba8();
+
+        let icon_height = icon.height();
+        let icon_width = icon.width();
+        let icon_data = icon.into_raw();
+
+        let mut settings = iced::Settings::with_flags(ui::Options {
             message_bus: Arc::new(message_bus),
-        }))?)
+        });
+
+        settings.window = iced::window::Settings {
+            icon: Some(iced::window::Icon::from_rgba(icon_data, icon_width, icon_height).unwrap()),
+            ..Default::default()
+        };
+        Ok(ui::UI::run(settings)?)
     })
 }
 
@@ -91,6 +111,7 @@ impl Default for GameState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all ="camelCase")]
 pub enum BodyPart {
     Head,
     Body,
@@ -135,6 +156,7 @@ impl BodyPart {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all ="camelCase")]
 pub enum EventType {
     Shock,
     Damage,

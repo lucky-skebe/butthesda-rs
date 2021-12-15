@@ -1,6 +1,8 @@
+use serde::Deserialize;
+
 use super::UIMessage;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Deserialize)]
 pub enum Game {
     // Skyrim,
     SkyrimSE,
@@ -12,6 +14,12 @@ pub enum Game {
 pub enum Message {
     GameSelected(Game),
     ModPathChanged(String),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Config {
+    game: Game,
+    mod_path: String,
 }
 
 pub struct State {
@@ -29,6 +37,26 @@ impl State {
             mod_path_state: Default::default(),
             // pick_mod_path_state: Default::default(),
         }
+    }
+
+    pub fn save(&self) -> Option<Config> {
+        if let Some(game) = self.game {
+            if !self.mod_path.is_empty() {
+                Some(Config {
+                    game,
+                    mod_path: self.mod_path.clone(),
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn load(&mut self, config: &Config) {
+        self.mod_path = config.mod_path.clone();
+        self.game = Some(config.game.clone());
     }
 
     pub fn is_ok(&self) -> bool {

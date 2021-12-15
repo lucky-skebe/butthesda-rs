@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
+pub use crate::device::Config;
 use crate::{buttplug::DeviceFeature, BodyPart, EventType};
 
 #[derive(Debug, Clone)]
@@ -9,7 +10,7 @@ pub enum Message {
 }
 
 pub struct State {
-    pub(crate) device_config: crate::device::Config,
+    pub(crate) device_config: Config,
     devices: BTreeMap<String, (u32, u32, u32)>,
     selected_device: Option<String>,
     selected_feature: Option<DeviceFeature>,
@@ -35,6 +36,10 @@ impl State {
 
     pub fn is_ok(&self) -> bool {
         !self.devices.is_empty()
+    }
+
+    pub fn save(&self) -> Config {
+        self.device_config.clone()
     }
 
     pub(crate) fn update(&mut self, message: Message) -> iced::Command<Message> {

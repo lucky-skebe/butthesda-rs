@@ -3,6 +3,9 @@ name = "butthesda-rs"
 version = "0.1.0"
 edition = "2018"
 
+[build-dependencies]
+embed-resource = "1.6"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
 tracing = "0.1"
@@ -36,3 +39,4 @@ futures = { version = "0.3" }
 buttplug = "5.1"
 lazy_static = "1.4"
 async-trait = "0.1"
+image = { version = "0.23", default-features = false, features = ["ico"] }

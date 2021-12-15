@@ -49,6 +49,7 @@ pub enum ConfigMessage {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[serde(transparent)]
 pub struct Config {
     map: HashMap<BodyPart, HashMap<EventType, HashMap<String, HashSet<DeviceFeature>>>>,
 }
