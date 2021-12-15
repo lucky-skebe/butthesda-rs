@@ -1,8 +1,8 @@
 use futures::StreamExt;
 use iced::{Application, Length};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc};
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::error;
 
 use crate::{
@@ -108,7 +108,7 @@ impl MaybeFrom<crate::Message> for UIMessage {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     game_select: game_select::Config,
     devices: devices::Config,
@@ -122,14 +122,18 @@ impl Config {
         let config = serde_json::from_str::<Config>(&content)?;
         Ok(config)
     }
+
+    async fn save(self, path: PathBuf) -> anyhow::Result<()> {
+        let content = serde_json::to_string_pretty(&self)?;
+
+        let mut file = tokio::fs::File::create(path).await?;
+
+        file.write_all(content.as_bytes()).await?;
+
+        Ok(())
+    }
 }
 
-// MessageBus,
-// PlayerState(debug::Message),
-// Error(String),
-// FileEvent(link_file::Event),
-// FunscriptsLoaded(funscript::Funscripts),
-// ButtplugMessage(buttplug::ButtplugMessage)
 #[derive(Debug, Clone)]
 pub enum UIMessage {
     InMessage(InMessage),
@@ -137,11 +141,14 @@ pub enum UIMessage {
     GameSelect(game_select::Message),
     Devices(devices::Message),
     SelectPage(Page),
-    Error(String, bool),
+    Error(String, String, bool),
     Save,
+    SaveFile(PathBuf),
     Close,
-    Load(PathBuf),
+    Load,
+    LoadFile(PathBuf),
     Loaded(Config),
+    Noop,
 }
 
 impl From<game_select::Message> for UIMessage {
@@ -189,11 +196,11 @@ impl UI {
         self.game_select.load(&config.game_select);
     }
 
-    fn save(&self) -> Option<Config> {
-        Some(Config {
+    fn save(&self) -> Config {
+        Config {
             devices: self.devices.save(),
-            game_select: self.game_select.save()?,
-        })
+            game_select: self.game_select.save(),
+        }
     }
 }
 
@@ -242,8 +249,6 @@ impl Application for UI {
         message: Self::Message,
         _clipboard: &mut iced::Clipboard,
     ) -> iced::Command<Self::Message> {
-        let load = |path| Config::load(path);
-
         match message {
             UIMessage::GameSelect(message) => self.game_select.update(message).map(Into::into),
             UIMessage::SelectPage(p) => {
@@ -296,42 +301,88 @@ impl Application for UI {
                 iced::Command::none()
             }
             UIMessage::Devices(message) => self.devices.update(message).map(Into::into),
-            UIMessage::Error(e, close) => {
-                error!("{}", e);
-                self.close = close;
-                iced::Command::none()
-            }
-            UIMessage::Save => {
-                let config = self.save();
-                dbg!(config);
-                
-                iced::Command::none()
+            UIMessage::Error(description, message, close) => {
+                error!("{}", message);
+                if close {
+                    iced::Command::perform(
+                        rfd::AsyncMessageDialog::new()
+                            .set_title("Error")
+                            .set_description(&description)
+                            .set_buttons(rfd::MessageButtons::Ok)
+                            .set_level(rfd::MessageLevel::Error)
+                            .show(),
+                        |_| UIMessage::Close,
+                    )
+                } else {
+                    iced::Command::perform(
+                        rfd::AsyncMessageDialog::new()
+                            .set_title("Waning")
+                            .set_description(&description)
+                            .set_buttons(rfd::MessageButtons::Ok)
+                            .set_level(rfd::MessageLevel::Warning)
+                            .show(),
+                        |_| UIMessage::Noop,
+                    )
+                }
             }
             UIMessage::Close => {
                 self.close = true;
                 iced::Command::none()
             }
-            UIMessage::Load(path) => iced::Command::perform(load(path), |m| match m{
+            UIMessage::Save => iced::Command::perform(
+                rfd::AsyncFileDialog::new()
+                    .add_filter("configuration file", &["json"])
+                    .add_filter("all files", &["*"])
+                    .set_title("Load File")
+                    .save_file(),
+                |h| match h {
+                    Some(handle) => UIMessage::SaveFile(handle.path().to_path_buf()),
+                    None => UIMessage::Noop,
+                },
+            ),
+            UIMessage::Load => iced::Command::perform(
+                rfd::AsyncFileDialog::new()
+                    .add_filter("configuration file", &["json"])
+                    .add_filter("all files", &["*"])
+                    .set_title("Load File")
+                    .pick_file(),
+                |h| match h {
+                    Some(handle) => UIMessage::LoadFile(handle.path().to_path_buf()),
+                    None => UIMessage::Noop,
+                },
+            ),
+            UIMessage::LoadFile(path) => iced::Command::perform(Config::load(path), |m| match m {
                 Ok(c) => UIMessage::Loaded(c),
-                Err(e) => UIMessage::Error(format!("{}", e), false),
+                Err(e) => UIMessage::Error(
+                    "Error while loading the File.".to_string(),
+                    format!("{}", e),
+                    false,
+                ),
             }),
             UIMessage::Loaded(config) => {
                 self.load(&config);
 
-                iced::Command::perform(async { UIMessage::OutMessage(crate::Message::DeviceConfiguration(crate::device::ConfigMessage::Complete(config.devices))) }, |m| m)
+                iced::Command::perform(
+                    async {
+                        UIMessage::OutMessage(crate::Message::DeviceConfiguration(
+                            crate::device::ConfigMessage::Complete(config.devices),
+                        ))
+                    },
+                    |m| m,
+                )
             }
-            // Message::PlayerState(message) => self.player_state.update(message),
-            // Message::Error(s) => {
-            //     error!("{}", s);
-            //     iced::Command::none()
-            // }
-            // Message::FileEvent(ev) => self.player_state.handle(ev),
-            // Message::FunscriptsLoaded(f) => {
-            //     self.funscripts = Some(f);
-            //     iced::Command::none()
-            // }
-            // Message::ButtplugMessage(ev) => self.buttplug.update(ev),
-            // Message::Nothing => iced::Command::none(),
+            UIMessage::SaveFile(path) => {
+                let config = self.save();
+                iced::Command::perform(config.save(path), |m| match m {
+                    Ok(_) => UIMessage::Noop,
+                    Err(e) => UIMessage::Error(
+                        "Error while saving the File.".to_string(),
+                        format!("{}", e),
+                        false,
+                    ),
+                })
+            }
+            UIMessage::Noop => iced::Command::none(),
         }
     }
 
@@ -353,7 +404,7 @@ impl Application for UI {
         iced::Subscription::batch([
             iced_native::subscription::events_with(|e, _| match e {
                 iced_native::Event::Window(iced_native::window::Event::FileDropped(path)) => {
-                    Some(UIMessage::Load(path))
+                    Some(UIMessage::LoadFile(path))
                 }
                 _ => None,
             }),
@@ -362,7 +413,11 @@ impl Application for UI {
                     .filter_map(|r| async {
                         match r {
                             Ok(m) => UIMessage::maybe_from(m),
-                            Err(e) => Some(UIMessage::Error(format!("{}", e), true)),
+                            Err(e) => Some(UIMessage::Error(
+                                "Too many Messages in Event Queue.".to_string(),
+                                format!("{}", e),
+                                true,
+                            )),
                         }
                     }),
             )),
@@ -419,12 +474,13 @@ impl Application for UI {
                 Page::Start => iced::Text::new("Play the Game:"),
             })
             .push(iced::Space::with_width(Length::Fill))
-            .push(iced::Button::new(
-                &mut self.btn_load,
-                iced::Text::new("Load"),
-            ))
+            .push(
+                iced::Button::new(&mut self.btn_load, iced::Text::new("Load"))
+                    .on_press(UIMessage::Load),
+            )
             .push(
                 iced::Button::new(&mut self.btn_save, iced::Text::new("Save"))
+                    .on_press(UIMessage::Save),
             );
 
         let column = iced::Column::new()

@@ -40,3 +40,4 @@ buttplug = "5.1"
 lazy_static = "1.4"
 async-trait = "0.1"
 image = { version = "0.23", default-features = false, features = ["ico"] }
+rfd = "0.6"

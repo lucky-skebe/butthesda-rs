@@ -1,8 +1,6 @@
 use std::{hash::Hash, str::FromStr, sync::Arc};
 
 use iced::Application;
-use iced_native::Widget;
-use image::ImageDecoder;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
