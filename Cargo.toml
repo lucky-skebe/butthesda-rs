@@ -3,6 +3,9 @@ name = "butthesda-rs"
 version = "0.1.0"
 edition = "2018"
 
+[features]
+strict_json = []
+
 [build-dependencies]
 embed-resource = "1.6"
 

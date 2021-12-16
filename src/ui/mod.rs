@@ -8,7 +8,7 @@ use tracing::error;
 use crate::{
     buttplug::{ButtplugConnection, ButtplugOutMessage},
     util::{MaybeFrom, StreamSubscription},
-    LazyStaticTokioExecutor, Message,
+    GameState, LazyStaticTokioExecutor, Message,
 };
 
 mod devices;
@@ -49,9 +49,17 @@ pub enum ButtplugInMessage {
 }
 
 #[derive(Debug, Clone)]
+pub enum LinkFileInMessage {
+    EquipmentChanged(crate::link_file::EquipmentState),
+    ArousalChanged(u8),
+    DetectedModsChanged(crate::link_file::LoadingSaveEvent),
+}
+
+#[derive(Debug, Clone)]
 pub enum InMessage {
     Buttplug(ButtplugInMessage),
     Device(crate::device::ConfigMessage),
+    LinkFile(LinkFileInMessage),
 }
 
 impl MaybeFrom<crate::Message> for UIMessage {
@@ -104,6 +112,30 @@ impl MaybeFrom<crate::Message> for UIMessage {
             Message::ButtplugOut(ButtplugOutMessage::Disconnect) => None,
 
             Message::DeviceConfiguration(msg) => Some(UIMessage::InMessage(InMessage::Device(msg))),
+            Message::LinkFileOut(_) => None,
+            Message::LinkFileIn(crate::link_file::InMessage::FileEvent(
+                crate::link_file::Event::DD(crate::link_file::DDEvent::EquipmentChanged(e)),
+            )) => Some(UIMessage::InMessage(InMessage::LinkFile(
+                LinkFileInMessage::EquipmentChanged(e),
+            ))),
+            Message::LinkFileIn(crate::link_file::InMessage::FileEvent(
+                crate::link_file::Event::Sla(e),
+            )) => Some(UIMessage::InMessage(InMessage::LinkFile(
+                LinkFileInMessage::ArousalChanged(e.arousal),
+            ))),
+            Message::LinkFileIn(crate::link_file::InMessage::FileEvent(
+                crate::link_file::Event::Game(crate::link_file::GameEvent::LoadingSave(e)),
+            )) => Some(UIMessage::InMessage(InMessage::LinkFile(
+                LinkFileInMessage::DetectedModsChanged(e),
+            ))),
+            Message::LinkFileIn(_) => None,
+            Message::FunscriptLoaded(_) => None,
+            Message::ConnectToProcess(_) => None,
+            Message::ProcessMessage(crate::process::Message::GameStateChanged(game_state)) => {
+                Some(UIMessage::GameState(game_state))
+            }
+            Message::ProcessMessage(crate::process::Message::AnimationsChanged(_)) => None,
+            Message::ProcessMessage(crate::process::Message::TimerReset) => None,
         }
     }
 }
@@ -148,6 +180,8 @@ pub enum UIMessage {
     Load,
     LoadFile(PathBuf),
     Loaded(Config),
+    LoadFunscripts,
+    GameState(GameState),
     Noop,
 }
 
@@ -251,9 +285,46 @@ impl Application for UI {
     ) -> iced::Command<Self::Message> {
         match message {
             UIMessage::GameSelect(message) => self.game_select.update(message).map(Into::into),
+
+            UIMessage::LoadFunscripts => {
+                let base_path = self.game_select.mod_path.clone();
+
+                iced::Command::perform(
+                    async {
+                        let result = crate::funscript::Funscripts::load(base_path).await;
+                        match result {
+                            Ok(funscripts) => {
+                                UIMessage::OutMessage(crate::Message::FunscriptLoaded(funscripts))
+                            }
+                            Err(err) => UIMessage::Error(
+                                "Could not load Funscripts".to_string(),
+                                format!("{}", err),
+                                false,
+                            ),
+                        }
+                    },
+                    |m| m,
+                )
+            }
             UIMessage::SelectPage(p) => {
                 self.page = p;
-                iced::Command::none()
+
+                let base_path = self.game_select.mod_path.clone();
+
+                iced::Command::batch([
+                    iced::Command::perform(async { UIMessage::LoadFunscripts }, |m| m),
+                    match self.page {
+                        Page::GameSelect | Page::Devices => iced::Command::none(),
+                        Page::Start => iced::Command::perform(
+                            async {
+                                UIMessage::OutMessage(crate::Message::LinkFileOut(
+                                    crate::link_file::OutMessage::StartScan(base_path),
+                                ))
+                            },
+                            |m| m,
+                        ),
+                    },
+                ])
             }
             UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::DeviceConnected(
                 name,
@@ -291,6 +362,46 @@ impl Application for UI {
                 config,
             ))) => {
                 self.devices.device_config = config;
+                iced::Command::none()
+            }
+            UIMessage::InMessage(InMessage::LinkFile(LinkFileInMessage::EquipmentChanged(
+                equipment_state,
+            ))) => {
+                self.start.equipment_state = equipment_state;
+
+                iced::Command::none()
+            }
+            UIMessage::InMessage(InMessage::LinkFile(LinkFileInMessage::ArousalChanged(
+                arousal,
+            ))) => {
+                self.start.arousal = arousal;
+
+                iced::Command::none()
+            }
+            UIMessage::InMessage(InMessage::LinkFile(LinkFileInMessage::DetectedModsChanged(
+                detected_mods,
+            ))) => {
+                let mut mods = Vec::new();
+                if detected_mods.bf_running {
+                    mods.push("Being Female".to_string());
+                }
+                if detected_mods.dd_running {
+                    mods.push("Devious Devices".to_string());
+                }
+
+                if detected_mods.mme_running {
+                    mods.push("Milk Mod Economy".to_string());
+                }
+
+                if detected_mods.sgo_running {
+                    mods.push("Soulgem Oven".to_string());
+                }
+
+                if detected_mods.sla_running {
+                    mods.push("Sexlab Aroused".to_string());
+                }
+                self.start.detected_mods = mods;
+
                 iced::Command::none()
             }
             UIMessage::OutMessage(message) => {
@@ -382,25 +493,15 @@ impl Application for UI {
                     ),
                 })
             }
+            UIMessage::GameState(game_state) => {
+                self.start.game_state = game_state;
+                iced::Command::none()
+            }
             UIMessage::Noop => iced::Command::none(),
         }
     }
 
     fn subscription(&self) -> iced::Subscription<Self::Message> {
-        // let subscriptions = [
-        //     self.player_state.subscription(),
-        //     self.buttplug.subscription(),
-        //     iced::Subscription::from_recipe(StreamSubscription::new(
-        //         tokio_stream::wrappers::BroadcastStream::new(self.link_file_sender.subscribe()),
-        //     ))
-        //     .map(|result| match result {
-        //         Ok(event) => Message::FileEvent(event),
-        //         Err(_) => Message::Error("File Scanner".to_string()),
-        //     }),
-        // ];
-
-        // iced::Subscription::batch(subscriptions)
-
         iced::Subscription::batch([
             iced_native::subscription::events_with(|e, _| match e {
                 iced_native::Event::Window(iced_native::window::Event::FileDropped(path)) => {

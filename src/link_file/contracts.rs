@@ -2,6 +2,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "mod")]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
 pub enum Event {
     #[serde(rename = "game")]
     Game(GameEvent),
@@ -17,6 +18,7 @@ pub enum Event {
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "event")]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
 pub enum GameEvent {
     #[serde(rename = "menu opened")]
     MenuOpened,
@@ -31,6 +33,7 @@ pub enum GameEvent {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
 pub struct LoadingSaveEvent {
     #[serde(rename = "DD_Running")]
     pub dd_running: bool,
@@ -45,6 +48,7 @@ pub struct LoadingSaveEvent {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
 pub struct DamageEvent {
     pub source: String,
     pub projectile: String,
@@ -54,12 +58,14 @@ pub struct DamageEvent {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
 pub struct SLAEvent {
     pub arousal: u8,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "event")]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
 pub enum DDEvent {
     #[serde(rename = "(de)equiped")]
     EquipmentChanged(EquipmentState),
@@ -76,6 +82,7 @@ pub enum DDEvent {
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
 pub struct EquipmentState {
     pub vaginal: EquipmentType,
     pub anal: EquipmentType,
@@ -86,6 +93,7 @@ pub struct EquipmentState {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
 pub enum EquipmentType {
     #[serde(alias="none")]
     None,
@@ -104,26 +112,31 @@ impl Default for EquipmentType{
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
 pub struct VibrationStart {
     pub arg: f32,
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
 pub struct VibrationStop {
     pub arg: f32,
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
 pub struct Orgasm {
     pub arg: f32,
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
 pub struct Edged {
     pub arg: f32,
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
 pub enum DeviceEvent {
     #[serde(rename = "trip over")]
     TripOver,
@@ -190,6 +203,7 @@ pub enum DeviceEvent {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
 #[serde(tag = "event")]
 pub enum SexlabEvent {
     #[serde(rename = "animation started")]
@@ -199,7 +213,7 @@ pub enum SexlabEvent {
     #[serde(rename = "animation ended")]
     AnimationEnded,
     #[serde(rename = "stage started")]
-    StageStarted(StageStarted),
+    StageStarted(Animation),
     #[serde(rename = "stage ended")]
     StageEnded,
     #[serde(rename = "position changed")]
@@ -211,6 +225,7 @@ pub enum SexlabEvent {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
 pub struct Animation {
     pub name: String,
     pub stage: u8,
@@ -224,12 +239,7 @@ pub struct Animation {
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct StageStarted {
-    pub name: String,
-    pub stage: u8,
-}
-
-#[derive(Debug, Deserialize, Clone)]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
 pub struct PositionChanged {
     pub name: String,
     #[serde(rename = "pos")]
@@ -237,6 +247,7 @@ pub struct PositionChanged {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
 #[serde(tag = "event")]
 pub enum MilkModEvent {
     StartMilkingMachine(MilkModData),
@@ -247,6 +258,7 @@ pub enum MilkModEvent {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
 pub struct MilkModData {
     pub mpas: i32,
     #[serde(rename = "MilkingType")]

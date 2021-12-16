@@ -2,15 +2,9 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use super::UIMessage;
+use crate::Game;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Deserialize, Serialize)]
-pub enum Game {
-    // Skyrim,
-    SkyrimSE,
-    SkyrimVR,
-    Fallout4,
-}
+use super::UIMessage;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -29,7 +23,7 @@ pub struct Config {
 
 pub struct State {
     game: Option<Game>,
-    mod_path: PathBuf,
+    pub mod_path: PathBuf,
     mod_path_state: iced::text_input::State,
     pick_mod_path_state: iced::button::State,
 }
@@ -64,7 +58,12 @@ impl State {
         match message {
             Message::GameSelected(game) => {
                 self.game = Some(game);
-                iced::Command::none()
+                iced::Command::perform(async move {
+                    UIMessage::OutMessage(crate::Message::ConnectToProcess(
+                        game
+                    ))
+                },
+                |m| m,)
             }
             Message::ModPathPicked(p) => {
                 self.mod_path = p;
@@ -101,16 +100,16 @@ impl State {
             ))
             .push(iced::Radio::new(
                 Game::SkyrimVR,
-                "Skyrim VR",
+                "Skyrim VR (Experimental)",
                 self.game,
                 |game| Message::GameSelected(game).into(),
             ))
-            .push(iced::Radio::new(
-                Game::Fallout4,
-                "Fallout 4",
-                self.game,
-                |game| Message::GameSelected(game).into(),
-            ))
+            // .push(iced::Radio::new(
+            //     Game::Fallout4,
+            //     "Fallout 4",
+            //     self.game,
+            //     |game| Message::GameSelected(game).into(),
+            // ))
             .push(
                 iced::Row::new()
                     .push(iced::TextInput::new(

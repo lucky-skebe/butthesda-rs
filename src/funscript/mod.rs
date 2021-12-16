@@ -205,6 +205,9 @@ impl Funscripts {
     }
 
     pub async fn load(path: impl AsRef<Path>) -> Result<Self, anyhow::Error> {
+        let mut path = path.as_ref().to_path_buf();
+        path.push("Funscripts");
+
         let mut sexlab = HashMap::new();
         let mut mod_events = HashMap::new();
         let mut read_dir = tokio::fs::read_dir(path).await?;

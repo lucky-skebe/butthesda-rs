@@ -6,9 +6,9 @@ use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 pub mod buttplug;
 pub mod device;
-// pub mod funscript;
-// pub mod link_file;
-// pub mod process;
+pub mod funscript;
+pub mod link_file;
+pub mod process;
 mod ui;
 pub mod util;
 
@@ -20,7 +20,24 @@ const ICON: &[u8] = include_bytes!("../app.ico");
 pub enum Message {
     ButtplugOut(buttplug::ButtplugOutMessage),
     ButtplugIn(::buttplug::client::ButtplugClientEvent),
+    LinkFileOut(link_file::OutMessage),
+    LinkFileIn(link_file::InMessage),
     DeviceConfiguration(device::ConfigMessage),
+    FunscriptLoaded(funscript::Funscripts),
+    ConnectToProcess(Game),
+    ProcessMessage(process::Message),
+}
+
+impl From<process::Message> for Message {
+    fn from(from: process::Message) -> Self {
+        Self::ProcessMessage(from)
+    }
+}
+
+impl From<link_file::InMessage> for Message {
+    fn from(from: link_file::InMessage) -> Self {
+        Self::LinkFileIn(from)
+    }
 }
 
 impl From<::buttplug::client::ButtplugClientEvent> for Message {
@@ -70,8 +87,9 @@ fn main() -> anyhow::Result<()> {
         let (message_bus, message_bus_handle) = tokio::sync::broadcast::channel::<Message>(100);
 
         let _buttplug_handle = tokio::spawn(buttplug::run(message_bus.clone()));
-
-        // let _handle = tokio::spawn(device::run(message_bus_handle));
+        let _link_file_handle = tokio::spawn(link_file::run(message_bus.clone()));
+        let _process_handle = tokio::spawn(process::run(message_bus.clone()));
+        let _logic_handle = tokio::spawn(device::run(message_bus_handle));
 
         let icon_reader =
             image::io::Reader::with_format(std::io::Cursor::new(ICON), image::ImageFormat::Ico);
@@ -95,8 +113,16 @@ fn main() -> anyhow::Result<()> {
     })
 }
 
-#[derive(Debug, PartialEq, Eq)]
-enum GameState {
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Deserialize, Serialize)]
+pub enum Game {
+    // Skyrim,
+    SkyrimSE,
+    SkyrimVR,
+    // Fallout4,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GameState {
     Stopped,
     Running,
     Paused,
@@ -109,7 +135,7 @@ impl Default for GameState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all ="camelCase")]
+#[serde(rename_all = "camelCase")]
 pub enum BodyPart {
     Head,
     Body,
@@ -154,7 +180,7 @@ impl BodyPart {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all ="camelCase")]
+#[serde(rename_all = "camelCase")]
 pub enum EventType {
     Shock,
     Damage,

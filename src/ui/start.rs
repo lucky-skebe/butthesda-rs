@@ -1,20 +1,20 @@
-use crate::GameState;
+use crate::{GameState, link_file::EquipmentState};
 
 #[derive(Debug)]
 pub struct State {
-    arousal: u8,
-    // equipment_state: EquipmentState,
-    detected_mods: Vec<String>,
-    game_status: GameState,
+    pub arousal: u8,
+    pub equipment_state: EquipmentState,
+    pub detected_mods: Vec<String>,
+    pub game_state: GameState,
 }
 
 impl State {
     pub fn new() -> Self {
         Self {
             arousal: Default::default(),
-            // equipment_state: Default::default(),
+            equipment_state: Default::default(),
             detected_mods: Default::default(),
-            game_status: Default::default(),
+            game_state: Default::default(),
         }
     }
 
@@ -26,22 +26,22 @@ impl State {
         let mut column = iced::Column::new()
             .push(iced::Text::new(format!("Arousal: {}", self.arousal)))
             .push(iced::Text::new(format!("Devious Devices:")))
-            // .push(iced::Text::new(format!(
-            //     "Vaginal Plug: {:?}",
-            //     self.equipment_state.vaginal
-            // )))
-            // .push(iced::Text::new(format!(
-            //     "Anal Plug: {:?}",
-            //     self.equipment_state.anal
-            // )))
-            // .push(iced::Text::new(format!(
-            //     "Vaginal Piercing: {:?}",
-            //     self.equipment_state.vaginal_piercing
-            // )))
-            // .push(iced::Text::new(format!(
-            //     "Nipple Piercing: {:?}",
-            //     self.equipment_state.nipple_piercing
-            // )))
+            .push(iced::Text::new(format!(
+                "Vaginal Plug: {:?}",
+                self.equipment_state.vaginal
+            )))
+            .push(iced::Text::new(format!(
+                "Anal Plug: {:?}",
+                self.equipment_state.anal
+            )))
+            .push(iced::Text::new(format!(
+                "Vaginal Piercing: {:?}",
+                self.equipment_state.vaginal_piercing
+            )))
+            .push(iced::Text::new(format!(
+                "Nipple Piercing: {:?}",
+                self.equipment_state.nipple_piercing
+            )))
             .push(iced::Text::new(format!("Mods Detected:")));
 
         for detected_mod in self.detected_mods.iter() {
@@ -50,7 +50,7 @@ impl State {
 
         column = column.push(iced::Text::new(format!(
             "Game State: {:?}",
-            self.game_status
+            self.game_state
         )));
 
         iced::Container::new(column).into()
