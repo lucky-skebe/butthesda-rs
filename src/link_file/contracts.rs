@@ -14,6 +14,8 @@ pub enum Event {
     Sexlab(SexlabEvent),
     #[serde(rename = "MME")]
     MilkMod(MilkModEvent),
+    #[serde(rename = "MME")]
+    Custom(CustomEvent),
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -92,20 +94,20 @@ pub struct EquipmentState {
     pub nipple_piercing: EquipmentType,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq, Copy)]
 #[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
 pub enum EquipmentType {
-    #[serde(alias="none")]
+    #[serde(alias = "none")]
     None,
-    #[serde(alias="pump")]
+    #[serde(alias = "pump")]
     Pump,
-    #[serde(alias="magic")]
+    #[serde(alias = "magic")]
     Magic,
-    #[serde(alias="normal")]
+    #[serde(alias = "normal")]
     Normal,
 }
 
-impl Default for EquipmentType{
+impl Default for EquipmentType {
     fn default() -> Self {
         Self::None
     }
@@ -263,4 +265,29 @@ pub struct MilkModData {
     pub mpas: i32,
     #[serde(rename = "MilkingType")]
     pub milking_type: i32,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(tag = "event")]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
+pub enum CustomEvent {
+    #[serde(rename = "start")]
+    Start(CustomEventStart),
+    #[serde(rename = "stop")]
+    Stop(CustomEventStop),
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
+pub struct CustomEventStart {
+    pub id: u32,
+
+    #[serde(rename = "type")]
+    pub ty: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[cfg_attr(feature = "strict_json", serde(deny_unknown_fields))]
+pub struct CustomEventStop {
+    pub id: u32,
 }

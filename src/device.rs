@@ -7,7 +7,10 @@ use std::{
 use crate::{
     buttplug::{DeviceFeature, DeviceInteraction},
     funscript::{Funscript, Funscripts},
-    link_file::{Animation, DDEvent, EquipmentState, PositionChanged, SexlabEvent, VibrationStart},
+    link_file::{
+        Animation, DDEvent, EquipmentState, EquipmentType, PositionChanged, SexlabEvent,
+        VibrationStart,
+    },
     BodyPart, EventType, GameState,
 };
 use buttplug::client::ButtplugClientDevice;
@@ -110,11 +113,6 @@ pub struct ConfigChange {
 }
 
 #[derive(Debug)]
-struct FunscriptInstance {
-    start_time: Instant,
-}
-
-#[derive(Debug)]
 struct SexlabAnimation {
     start_time: Instant,
     name: String,
@@ -136,6 +134,18 @@ enum Strength {
     Standard,
     Strong,
     VeryStrong,
+}
+
+impl std::fmt::Display for Strength {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Strength::VeryWeak => write!(f, "veryweak"),
+            Strength::Weak => write!(f, "weak"),
+            Strength::Standard => write!(f, "standard"),
+            Strength::Strong => write!(f, "strong"),
+            Strength::VeryStrong => write!(f, "verystrong"),
+        }
+    }
 }
 
 impl Strength {
@@ -161,17 +171,132 @@ struct DDVibrate {
 }
 
 #[derive(Debug, Default)]
+struct DDEquipmentEvent {
+    ty: EquipmentType,
+    time: Option<Instant>,
+}
+
+impl DDEquipmentEvent {
+    fn new(ty: EquipmentType, time: Option<Instant>) -> DDEquipmentEvent {
+        Self { ty, time }
+    }
+
+    fn fill_events(
+        &self,
+        equipped_event_name: String,
+        unequipped_event_name: Option<String>,
+        now: Instant,
+        state: &State,
+        mut next_wakeup: &mut Option<Instant>,
+        mut device_values: &mut HashMap<String, HashMap<DeviceInteraction, HashMap<u32, Vec<u8>>>>,
+    ) {
+        if let Some(time) = self.time {
+            let event_name = if self.ty != EquipmentType::None {
+                Some(equipped_event_name)
+            } else {
+                unequipped_event_name
+            };
+
+            if let Some(event_name) = event_name {
+                let anim_duration = now - time;
+                let body_parts = state
+                    .funscripts
+                    .get_mod_event(&"devious devices".to_string(), &event_name);
+
+                get_device_values(
+                    &state,
+                    body_parts,
+                    anim_duration,
+                    time,
+                    &mut next_wakeup,
+                    &mut device_values,
+                );
+            }
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct DDEquipmentEvents {
+    anal: DDEquipmentEvent,
+    vaginal: DDEquipmentEvent,
+    nipple_piercing: DDEquipmentEvent,
+    vaginal_piercing: DDEquipmentEvent,
+}
+
+impl DDEquipmentEvents {
+    fn fill_events(
+        &self,
+        equipped_event_name: &str,
+        unequipped_event_name: Option<&str>,
+        now: Instant,
+        state: &State,
+        next_wakeup: &mut Option<Instant>,
+        device_values: &mut HashMap<String, HashMap<DeviceInteraction, HashMap<u32, Vec<u8>>>>,
+    ) {
+        self.anal.fill_events(
+            format!("{} {}", equipped_event_name, "anal"),
+            unequipped_event_name.map(|name| format!("{} {}", name, "anal")),
+            now,
+            state,
+            next_wakeup,
+            device_values,
+        );
+        self.vaginal.fill_events(
+            format!("{} {}", equipped_event_name, "vaginal"),
+            unequipped_event_name.map(|name| format!("{} {}", name, "vaginal")),
+            now,
+            state,
+            next_wakeup,
+            device_values,
+        );
+        self.nipple_piercing.fill_events(
+            format!("{} {}", equipped_event_name, "nipplepiercing"),
+            unequipped_event_name.map(|name| format!("{} {}", name, "nipplepiercing")),
+            now,
+            state,
+            next_wakeup,
+            device_values,
+        );
+        self.vaginal_piercing.fill_events(
+            format!("{} {}", equipped_event_name, "vaginalpiercing"),
+            unequipped_event_name.map(|name| format!("{} {}", name, "vaginalpiercing")),
+            now,
+            state,
+            next_wakeup,
+            device_values,
+        );
+    }
+}
+
+#[derive(Debug)]
+pub struct FunscriptInstance {
+    name: String,
+    start: Instant,
+}
+
+impl FunscriptInstance {
+    pub fn new(name: &String, start: Instant) -> Self {
+        Self {
+            name: name.clone(),
+            start,
+        }
+    }
+}
+
+#[derive(Debug, Default)]
 struct State {
     devices: HashMap<String, (InteractionMap, Arc<ButtplugClientDevice>)>,
     buttplug_connected: bool,
     config: Config,
-    // mod_events: HashMap<(String, String), FunscriptInstance>,
+    mod_events: HashMap<u32, FunscriptInstance>,
     sexlab_animation: Option<SexlabAnimation>,
-    orgasm: bool,
+    orgasm: Option<Instant>,
     game_state: GameState,
     funscripts: Funscripts,
-    dd_vibrateEvent: Option<DDVibrate>,
-    dd_equipment_state: EquipmentState,
+    dd_equip_events: DDEquipmentEvents,
+    dd_step_event: DDEquipmentEvents,
+    dd_vibrate_event: Option<DDVibrate>,
 }
 
 impl State {
@@ -240,8 +365,8 @@ impl State {
             crate::Message::LinkFileIn(crate::link_file::InMessage::FileEvent(
                 crate::link_file::Event::DD(DDEvent::Edged(_)),
             )) => {
-                self.dd_vibrateEvent = None;
-                true
+                // todo
+                false
             }
             crate::Message::LinkFileIn(crate::link_file::InMessage::FileEvent(
                 crate::link_file::Event::DD(DDEvent::EquipmentChanged(EquipmentState {
@@ -250,7 +375,30 @@ impl State {
                     vaginal_piercing,
                     nipple_piercing,
                 })),
-            )) => false,
+            )) => {
+                let now = Instant::now();
+                let mut changed = false;
+                if self.dd_equip_events.anal.ty != anal {
+                    self.dd_equip_events.anal = DDEquipmentEvent::new(anal, Some(now));
+                    changed = true;
+                }
+                if self.dd_equip_events.anal.ty != vaginal {
+                    self.dd_equip_events.vaginal = DDEquipmentEvent::new(vaginal, Some(now));
+                    changed = true;
+                }
+                if self.dd_equip_events.vaginal_piercing.ty != vaginal_piercing {
+                    self.dd_equip_events.vaginal_piercing =
+                        DDEquipmentEvent::new(vaginal_piercing, Some(now));
+                    changed = true;
+                }
+                if self.dd_equip_events.nipple_piercing.ty != nipple_piercing {
+                    self.dd_equip_events.nipple_piercing =
+                        DDEquipmentEvent::new(nipple_piercing, Some(now));
+                    changed = true;
+                }
+
+                changed
+            }
             crate::Message::LinkFileIn(crate::link_file::InMessage::FileEvent(
                 crate::link_file::Event::DD(DDEvent::Orgasm(_orgasm)),
             )) => {
@@ -260,7 +408,7 @@ impl State {
             crate::Message::LinkFileIn(crate::link_file::InMessage::FileEvent(
                 crate::link_file::Event::DD(DDEvent::VibrationStart(VibrationStart { arg })),
             )) => {
-                self.dd_vibrateEvent = Some(DDVibrate {
+                self.dd_vibrate_event = Some(DDVibrate {
                     start_time: Instant::now(),
                     strength: Strength::from_arg(arg),
                 });
@@ -269,7 +417,7 @@ impl State {
             crate::Message::LinkFileIn(crate::link_file::InMessage::FileEvent(
                 crate::link_file::Event::DD(DDEvent::VibrationStop(_)),
             )) => {
-                self.dd_vibrateEvent = None;
+                self.dd_vibrate_event = None;
                 true
             }
             crate::Message::LinkFileIn(crate::link_file::InMessage::FileEvent(
@@ -315,13 +463,13 @@ impl State {
             crate::Message::LinkFileIn(crate::link_file::InMessage::FileEvent(
                 crate::link_file::Event::Sexlab(SexlabEvent::OrgasmEnded),
             )) => {
-                self.orgasm = false;
+                self.orgasm = None;
                 true
             }
             crate::Message::LinkFileIn(crate::link_file::InMessage::FileEvent(
                 crate::link_file::Event::Sexlab(SexlabEvent::OrgasmStarted),
             )) => {
-                self.orgasm = true;
+                self.orgasm = Some(Instant::now());
                 true
             }
             crate::Message::LinkFileIn(crate::link_file::InMessage::FileEvent(
@@ -355,7 +503,23 @@ impl State {
                     false
                 }
             }
-            crate::Message::LinkFileIn(crate::link_file::InMessage::FileEvent(_)) => false,
+            crate::Message::LinkFileIn(crate::link_file::InMessage::FileEvent(
+                crate::link_file::Event::Custom(event),
+            )) => match event {
+                crate::link_file::CustomEvent::Start(crate::link_file::CustomEventStart {
+                    id,
+                    ty,
+                }) => {
+                    self.mod_events
+                        .insert(id, FunscriptInstance::new(&ty, Instant::now()));
+
+                    true
+                }
+                crate::link_file::CustomEvent::Stop(crate::link_file::CustomEventStop { id }) => {
+                    self.mod_events.remove(&id).is_some()
+                }
+            },
+            crate::Message::LinkFileIn(_) => false,
             crate::Message::ProcessMessage(crate::process::Message::AnimationsChanged(
                 animations,
             )) => {
@@ -379,6 +543,17 @@ impl State {
                         _ => false,
                     }
                 }
+                let now = Instant::now();
+
+                self.dd_step_event.anal =
+                    DDEquipmentEvent::new(self.dd_equip_events.anal.ty, Some(now));
+                self.dd_step_event.nipple_piercing =
+                    DDEquipmentEvent::new(self.dd_equip_events.nipple_piercing.ty, Some(now));
+                self.dd_step_event.vaginal =
+                    DDEquipmentEvent::new(self.dd_equip_events.vaginal.ty, Some(now));
+                self.dd_step_event.vaginal_piercing =
+                    DDEquipmentEvent::new(self.dd_equip_events.vaginal_piercing.ty, Some(now));
+
                 change
             }
             crate::Message::ProcessMessage(crate::process::Message::GameStateChanged(
@@ -581,19 +756,53 @@ pub async fn run(mut receiver: tokio::sync::broadcast::Receiver<crate::Message>)
                 );
             });
 
-            // for ((mod_name, event_name), f) in &state.mod_events {
-            //     let anim_duration = now - f.start_time;
-            //     let body_parts = state.funscripts.get_mod_event(mod_name, event_name);
+            state.dd_equip_events.fill_events(
+                "dd device equiped",
+                Some("dd device de-equiped"),
+                now,
+                &state,
+                &mut next_wakeup,
+                &mut device_values,
+            );
+            state.dd_step_event.fill_events(
+                "dd device footstep",
+                None,
+                now,
+                &state,
+                &mut next_wakeup,
+                &mut device_values,
+            );
 
-            //     get_device_values(
-            //         &state,
-            //         body_parts,
-            //         anim_duration,
-            //         f.start_time,
-            //         &mut next_wakeup,
-            //         &mut device_values,
-            //     );
-            // }
+            if let Some(vibrate) = &state.dd_vibrate_event {
+                let anim_duration = now - vibrate.start_time;
+                let body_parts = state.funscripts.get_mod_event(
+                    &"devious devices".to_string(),
+                    &format!("vibrator_{}1LP", vibrate.strength),
+                );
+
+                get_device_values(
+                    &state,
+                    body_parts,
+                    anim_duration,
+                    vibrate.start_time,
+                    &mut next_wakeup,
+                    &mut device_values,
+                );
+            }
+
+            for (_id, FunscriptInstance { start, name }) in &state.mod_events {
+                let anim_duration = now - *start;
+                let body_parts = state.funscripts.get_mod_event(&"custom".to_string(), &name);
+
+                get_device_values(
+                    &state,
+                    body_parts,
+                    anim_duration,
+                    *start,
+                    &mut next_wakeup,
+                    &mut device_values,
+                );
+            }
 
             for (device_name, features) in device_values {
                 let mut new_map = InteractionMap {

@@ -5,7 +5,7 @@ use std::time::Duration;
 
 pub use contracts::*;
 use tokio::io::AsyncReadExt;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 #[derive(Debug, Clone)]
 pub enum InMessage {
