@@ -1,7 +1,13 @@
 [package]
-name = "buthesda-rs"
+name = "butthesda-rs"
 version = "0.1.0"
 edition = "2018"
+
+[features]
+strict_json = []
+
+[build-dependencies]
+embed-resource = "1.6"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
@@ -18,7 +24,7 @@ winapi = { version = "0.3", features = [
 ] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.0", features = [
+tokio = { version = "1.14", features = [
     "fs",
     "rt",
     "rt-multi-thread",
@@ -27,9 +33,14 @@ tokio = { version = "1.0", features = [
     "macros",
     "io-util"
 ] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 anyhow = "1.0"
 iced = "0.3"
 iced_futures = { version = "0.3", features = ["tokio"] }
 iced_native = "0.4"
-futures = "0.3"
+futures = { version = "0.3" }
 buttplug = "5.1"
+lazy_static = "1.4"
+async-trait = "0.1"
+image = { version = "0.23", default-features = false, features = ["ico"] }
+rfd = "0.6"

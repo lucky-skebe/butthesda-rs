@@ -1,59 +1,141 @@
-use std::str::FromStr;
+use std::{hash::Hash, str::FromStr, sync::Arc};
 
 use iced::Application;
-use memory::Process;
+use serde::{Deserialize, Serialize};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
-mod buttplug;
-mod funscript;
-mod link_file;
-mod memory;
-mod player_state;
+pub mod buttplug;
+pub mod device;
+pub mod funscript;
+pub mod link_file;
+pub mod process;
+mod ui;
+pub mod util;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let subscriber = FmtSubscriber::builder()
-        // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
-        // will be written to stdout.
-        .with_env_filter(EnvFilter::from_str("debug,wgpu_core=warn")?)
-        // completes the builder.
-        .finish();
+pub type MessageBus = tokio::sync::broadcast::Sender<Message>;
 
-    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+const ICON: &[u8] = include_bytes!("../app.ico");
 
-    let process = Process::open(&memory::SKYRIM_SE).unwrap().unwrap();
-
-    if let Ok(Some(process)) = process.inject() {
-        memory::scan_memory(process).await.unwrap();
-    }
-
-    Ok(())
-
-    // Ok(UI::run(iced::Settings::with_flags(Options {
-    //     file_path: "E:\\ModOrganizer2\\SSE\\mods\\Butthesda\\FunScripts\\link.txt".to_string(),
-    // }))?)
-
-    // println!("Pid: {}", process.pid);
-
-    // let (sender, receiver) = tokio::sync::mpsc::channel(100);
-
-    // let res = tokio::try_join! {
-    //     {
-    //         let sender = sender.clone();
-    //         link_file::run(
-    //         "E:\\ModOrganizer2\\SSE\\mods\\Butthesda\\FunScripts\\link.txt",
-    //         sender,
-    //     )}
-    // };
-
-    // if let Err(e) = res {
-    //     Err(e)
-    // } else {
-    //     Ok(())
-    // }
+#[derive(Debug, Clone)]
+pub enum Message {
+    ButtplugOut(buttplug::ButtplugOutMessage),
+    ButtplugIn(::buttplug::client::ButtplugClientEvent),
+    LinkFileOut(link_file::OutMessage),
+    LinkFileIn(link_file::InMessage),
+    DeviceConfiguration(device::ConfigMessage),
+    FunscriptLoaded(funscript::Funscripts),
+    ConnectToProcess(Game),
+    ProcessMessage(process::Message),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+impl From<process::Message> for Message {
+    fn from(from: process::Message) -> Self {
+        Self::ProcessMessage(from)
+    }
+}
+
+impl From<link_file::InMessage> for Message {
+    fn from(from: link_file::InMessage) -> Self {
+        Self::LinkFileIn(from)
+    }
+}
+
+impl From<::buttplug::client::ButtplugClientEvent> for Message {
+    fn from(from: ::buttplug::client::ButtplugClientEvent) -> Self {
+        Self::ButtplugIn(from)
+    }
+}
+
+lazy_static::lazy_static! {
+    static ref RUNTIME: tokio::runtime::Runtime = {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+    };
+}
+
+pub struct LazyStaticTokioExecutor;
+
+impl iced_futures::Executor for LazyStaticTokioExecutor {
+    fn new() -> Result<Self, futures::io::Error>
+    where
+        Self: Sized,
+    {
+        Ok(Self)
+    }
+
+    fn spawn(&self, future: impl futures::Future<Output = ()> + Send + 'static) {
+        let _ = RUNTIME.spawn(future);
+    }
+
+    fn enter<R>(&self, f: impl FnOnce() -> R) -> R {
+        let _guard = RUNTIME.enter();
+        f()
+    }
+}
+
+fn main() -> anyhow::Result<()> {
+    RUNTIME.block_on(async {
+        let subscriber = FmtSubscriber::builder()
+            .with_env_filter(EnvFilter::from_str("error,butthesda_rs=debug")?)
+            .finish();
+
+        tracing::subscriber::set_global_default(subscriber)
+            .expect("setting default subscriber failed");
+
+        let (message_bus, message_bus_handle) = tokio::sync::broadcast::channel::<Message>(100);
+
+        let _buttplug_handle = tokio::spawn(buttplug::run(message_bus.clone()));
+        let _link_file_handle = tokio::spawn(link_file::run(message_bus.clone()));
+        let _process_handle = tokio::spawn(process::run(message_bus.clone()));
+        let _logic_handle = tokio::spawn(device::run(message_bus_handle));
+
+        let icon_reader =
+            image::io::Reader::with_format(std::io::Cursor::new(ICON), image::ImageFormat::Ico);
+
+        let icon = icon_reader.decode().unwrap();
+        let icon = icon.into_rgba8();
+
+        let icon_height = icon.height();
+        let icon_width = icon.width();
+        let icon_data = icon.into_raw();
+
+        let mut settings = iced::Settings::with_flags(ui::Options {
+            message_bus: Arc::new(message_bus),
+        });
+
+        settings.window = iced::window::Settings {
+            icon: Some(iced::window::Icon::from_rgba(icon_data, icon_width, icon_height).unwrap()),
+            ..Default::default()
+        };
+        Ok(ui::UI::run(settings)?)
+    })
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Deserialize, Serialize)]
+pub enum Game {
+    // Skyrim,
+    SkyrimSE,
+    SkyrimVR,
+    // Fallout4,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GameState {
+    Stopped,
+    Running,
+    Paused,
+}
+
+impl Default for GameState {
+    fn default() -> Self {
+        Self::Stopped
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum BodyPart {
     Head,
     Body,
@@ -97,7 +179,8 @@ impl BodyPart {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum EventType {
     Shock,
     Damage,
@@ -126,92 +209,5 @@ impl EventType {
             Self::Vibrate,
             Self::Equip,
         ]
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum Message {
-    PlayerState(player_state::Message),
-    SomethingBroke(String),
-    FileEvent(link_file::Event),
-    FunscriptsLoaded(funscript::Funscripts),
-    ButtplugMessage(buttplug::ButtplugMessage),
-    Nothing,
-}
-
-pub struct Options {
-    file_path: String,
-}
-
-pub struct UI {
-    player_state: player_state::State,
-    pub buttplug: buttplug::State,
-    funscripts: Option<funscript::Funscripts>,
-}
-
-impl Application for UI {
-    type Executor = iced_futures::executor::Tokio;
-
-    type Message = Message;
-
-    type Flags = Options;
-
-    fn new(flags: Self::Flags) -> (Self, iced::Command<Self::Message>) {
-        let (buttplug, buttplug_command) = buttplug::State::new();
-        (
-            Self {
-                player_state: player_state::State::new(flags.file_path),
-                funscripts: None,
-                buttplug,
-            },
-            iced::Command::batch([
-                buttplug_command,
-                iced::Command::perform(
-                    funscript::Funscripts::load(
-                        "E:\\ModOrganizer2\\SSE\\mods\\Butthesda\\FunScripts",
-                    ),
-                    |f| Message::FunscriptsLoaded(f.unwrap()),
-                ),
-            ]),
-        )
-    }
-
-    fn title(&self) -> String {
-        "Butthesda".to_string()
-    }
-
-    fn update(
-        &mut self,
-        message: Self::Message,
-        _clipboard: &mut iced::Clipboard,
-    ) -> iced::Command<Self::Message> {
-        match message {
-            Message::PlayerState(message) => self.player_state.update(message),
-            Message::SomethingBroke(_s) => iced::Command::none(),
-            Message::FileEvent(ev) => self.player_state.handle(ev),
-            Message::FunscriptsLoaded(f) => {
-                self.funscripts = Some(f);
-                iced::Command::none()
-            }
-            Message::ButtplugMessage(ev) => self.buttplug.update(ev),
-            Message::Nothing => iced::Command::none(),
-        }
-    }
-
-    fn subscription(&self) -> iced::Subscription<Self::Message> {
-        let subscriptions = [
-            self.player_state.subscription(),
-            self.buttplug.subscription(),
-        ];
-
-        iced::Subscription::batch(subscriptions)
-    }
-
-    fn view(&mut self) -> iced::Element<'_, Self::Message> {
-        let row = iced::Row::new()
-            .push(self.player_state.view())
-            .push(self.buttplug.view());
-
-        iced::Container::new(row).into()
     }
 }

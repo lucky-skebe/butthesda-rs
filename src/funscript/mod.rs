@@ -7,16 +7,13 @@ use crate::{BodyPart, EventType};
 
 mod contracts;
 
+pub use contracts::*;
 
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Funscripts {
     sexlab: HashMap<
         String,
-        HashMap<
-            String,
-            HashMap<u8, HashMap<u8, HashMap<BodyPart, HashMap<EventType, contracts::Funscript>>>>,
-        >,
+        HashMap<u8, HashMap<u8, HashMap<BodyPart, HashMap<EventType, contracts::Funscript>>>>,
     >,
     mod_events: HashMap<
         String,
@@ -27,24 +24,19 @@ pub struct Funscripts {
 impl Funscripts {
     pub fn get_mod_event(
         &self,
-        mod_name: String,
-        event_name: String,
+        mod_name: &String,
+        event_name: &String,
     ) -> Option<&HashMap<BodyPart, HashMap<EventType, contracts::Funscript>>> {
-        self.mod_events.get(&mod_name)?.get(&event_name)
+        self.mod_events.get(mod_name)?.get(event_name)
     }
 
     pub fn get_sexlab_animation(
         &self,
-        animation_pack: String,
-        animation_name: String,
-        stage: u8,
-        position: u8,
+        animation_name: &String,
+        stage: &u8,
+        position: &u8,
     ) -> Option<&HashMap<BodyPart, HashMap<EventType, contracts::Funscript>>> {
-        self.sexlab
-            .get(&animation_pack)?
-            .get(&animation_name)?
-            .get(&stage)?
-            .get(&position)
+        self.sexlab.get(animation_name)?.get(stage)?.get(position)
     }
 
     async fn load_funscript(path: impl AsRef<Path>) -> Result<contracts::Funscript, anyhow::Error> {
@@ -70,8 +62,7 @@ impl Funscripts {
                 if let Some(file_name) = file_name {
                     if let Some((name, _extension)) = file_name.rsplit_once(".") {
                         if let Some(event_type) = EventType::from_str(&name.to_lowercase()) {
-                            event_type_map
-                                .insert(event_type, Self::load_funscript(path).await?);
+                            event_type_map.insert(event_type, Self::load_funscript(path).await?);
                         } else {
                             error!(?path, "Invalid EventType: {}", file_name);
                         }
@@ -145,11 +136,11 @@ impl Funscripts {
                     if file_name.starts_with("p") {
                         if let Some(position) = file_name[1..].parse::<u8>().ok() {
                             map.insert(position, Self::load_body_parts(entry.path()).await?);
-                        }else {
+                        } else {
                             let path = entry.path();
                             error!(?path, "Invalid Sexlab Position: {}", file_name);
                         }
-                    }else {
+                    } else {
                         let path = entry.path();
                         error!(?path, "Invalid Sexlab Position: {}", file_name);
                     }
@@ -176,11 +167,11 @@ impl Funscripts {
                     if file_name.starts_with("s") {
                         if let Some(stage) = file_name[1..].parse::<u8>().ok() {
                             map.insert(stage, Self::load_stage(entry.path()).await?);
-                        }else {
+                        } else {
                             let path = entry.path();
                             error!(?path, "Invalid Sexlab Stage: {}", file_name);
                         }
-                    }else {
+                    } else {
                         let path = entry.path();
                         error!(?path, "Invalid Sexlab Stage: {}", file_name);
                     }
@@ -192,31 +183,31 @@ impl Funscripts {
 
     async fn load_anim_pack(
         path: impl AsRef<Path>,
-    ) -> Result<
-        HashMap<
+        sexlab: &mut HashMap<
             String,
             HashMap<u8, HashMap<u8, HashMap<BodyPart, HashMap<EventType, contracts::Funscript>>>>,
         >,
-        anyhow::Error,
-    > {
-        let mut map = HashMap::new();
+    ) -> Result<(), anyhow::Error> {
         let mut read_dir = tokio::fs::read_dir(path).await?;
         while let Some(entry) = read_dir.next_entry().await? {
             if entry.file_type().await?.is_dir() {
                 let file_name = entry.file_name();
                 let file_name = file_name.to_str();
                 if let Some(file_name) = file_name {
-                    map.insert(
+                    sexlab.insert(
                         file_name.to_string().to_lowercase(),
                         Self::load_animation(entry.path()).await?,
                     );
                 }
             }
         }
-        Ok(map)
+        Ok(())
     }
 
     pub async fn load(path: impl AsRef<Path>) -> Result<Self, anyhow::Error> {
+        let mut path = path.as_ref().to_path_buf();
+        path.push("Funscripts");
+
         let mut sexlab = HashMap::new();
         let mut mod_events = HashMap::new();
         let mut read_dir = tokio::fs::read_dir(path).await?;
@@ -241,11 +232,8 @@ impl Funscripts {
 
                                         mod_events.insert("sexlab".to_string(), sexlab_map);
                                     }
-                                    Some(anim_pack_name) => {
-                                        sexlab.insert(
-                                            anim_pack_name.to_string().to_lowercase(),
-                                            Self::load_anim_pack(entry.path()).await?,
-                                        );
+                                    Some(_) => {
+                                        Self::load_anim_pack(entry.path(), &mut sexlab).await?;
                                     }
                                     None => {}
                                 }
