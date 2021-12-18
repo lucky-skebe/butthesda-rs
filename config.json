@@ -1,0 +1,386 @@
+{
+  "game_select": {
+    "game": "SkyrimSE",
+    "mod_path": "E:\\ModOrganizer2\\SSE\\mods\\Butthesda"
+  },
+  "devices": {
+    "head": {
+      "damage": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "equip": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "penetrate": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "shock": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "vibrate": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      }
+    },
+    "mouth": {
+      "equip": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "shock": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "vibrate": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "damage": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "penetrate": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      }
+    },
+    "belly": {
+      "penetrate": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "vibrate": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "equip": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "damage": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "shock": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      }
+    },
+    "vaginal": {
+      "shock": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "equip": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "damage": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "penetrate": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "vibrate": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      }
+    },
+    "feet": {
+      "penetrate": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "damage": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "equip": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "vibrate": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "shock": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      }
+    },
+    "breast": {
+      "vibrate": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "shock": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "damage": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "equip": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "penetrate": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      }
+    },
+    "anal": {
+      "equip": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "shock": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "vibrate": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "damage": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "penetrate": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      }
+    },
+    "body": {
+      "vibrate": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "shock": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "damage": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "equip": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "penetrate": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      }
+    },
+    "clit": {
+      "shock": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "penetrate": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "damage": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "equip": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      },
+      "vibrate": {
+        "XBox (XInput) Compatible Gamepad": [
+          {
+            "interaction": "vibrate",
+            "index": 1
+          }
+        ]
+      }
+    }
+  }
+}

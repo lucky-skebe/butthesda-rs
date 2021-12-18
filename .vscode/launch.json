@@ -7,15 +7,15 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'buthesda-rs'",
+            "name": "Debug executable 'butthesda-rs'",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=buthesda-rs",
-                    "--package=buthesda-rs"
+                    "--bin=butthesda-rs",
+                    "--package=butthesda-rs"
                 ],
                 "filter": {
-                    "name": "buthesda-rs",
+                    "name": "butthesda-rs",
                     "kind": "bin"
                 }
             },
@@ -25,16 +25,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'buthesda-rs'",
+            "name": "Debug unit tests in executable 'butthesda-rs'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=buthesda-rs",
-                    "--package=buthesda-rs"
+                    "--bin=butthesda-rs",
+                    "--package=butthesda-rs"
                 ],
                 "filter": {
-                    "name": "buthesda-rs",
+                    "name": "butthesda-rs",
                     "kind": "bin"
                 }
             },

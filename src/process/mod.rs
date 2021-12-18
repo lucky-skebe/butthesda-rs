@@ -1,6 +1,8 @@
-use std::{collections::HashSet, ffi::c_void, mem::size_of, time::Duration};
+use std::{collections::HashSet, ffi::c_void, fmt::Display, mem::size_of, time::Duration};
 
+use futures::StreamExt;
 use sysinfo::{ProcessExt, System, SystemExt};
+use tracing::debug;
 use winapi::um::{
     memoryapi::{
         ReadProcessMemory, VirtualAllocEx, VirtualProtectEx, VirtualQueryEx, WriteProcessMemory,
@@ -12,6 +14,8 @@ use winapi::um::{
         PAGE_READWRITE, PROCESS_VM_OPERATION, PROCESS_VM_READ, PROCESS_VM_WRITE,
     },
 };
+
+use crate::GameState;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ProcessInfo {
@@ -178,8 +182,8 @@ pub struct ProcessMemory {
 
 impl ProcessMemory {
     fn read_raw_bytes(
-        &mut self,
-        address: *mut u8,
+        &self,
+        address: *const u8,
         target: *mut u8,
         length: usize,
     ) -> (i32, Result<(), Error>) {
@@ -198,7 +202,7 @@ impl ProcessMemory {
         (
             bytes_read,
             if ok == 0 {
-                Err(unsafe { winapi::um::errhandlingapi::GetLastError() })
+                Err(unsafe { Error(winapi::um::errhandlingapi::GetLastError()) })
             } else {
                 Ok(())
             },
@@ -226,14 +230,14 @@ impl ProcessMemory {
         (
             bytes_writter,
             if ok == 0 {
-                Err(unsafe { winapi::um::errhandlingapi::GetLastError() })
+                Err(unsafe { Error(winapi::um::errhandlingapi::GetLastError()) })
             } else {
                 Ok(())
             },
         )
     }
 
-    pub fn read<T>(&mut self, address: *mut u8) -> Result<T, Error>
+    pub fn read<T>(&self, address: *mut u8) -> Result<T, Error>
     where
         T: Default,
     {
@@ -252,13 +256,13 @@ impl ProcessMemory {
         }
     }
 
-    fn read_slice(&mut self, address: *mut u8, slice: &mut [u8]) -> Result<i32, Error> {
+    fn read_slice(&self, address: *mut u8, slice: &mut [u8]) -> Result<i32, Error> {
         let (bytes_read, result) =
             self.read_raw_bytes(address, slice as *mut _ as *mut u8, slice.len());
 
         match result {
             Ok(_) => Ok(bytes_read),
-            Err(299) => Ok(bytes_read),
+            Err(Error(299)) => Ok(bytes_read),
             Err(e) => Err(e),
         }
     }
@@ -269,7 +273,7 @@ impl ProcessMemory {
 
         match result {
             Ok(_) => Ok(bytes_read),
-            Err(299) => Ok(bytes_read),
+            Err(Error(299)) => Ok(bytes_read),
             Err(e) => Err(e),
         }
     }
@@ -312,10 +316,10 @@ impl ProcessMemory {
             address = unsafe { address.offset(-0x10000) };
         }
 
-        Err(0)
+        Err(Error(8))
     }
 
-    pub fn read_ptr(&mut self, address: *mut u8) -> Result<*mut u8, Error> {
+    pub fn read_ptr(&self, address: *mut u8) -> Result<*mut u8, Error> {
         Ok(if self.is_64_bit {
             self.read::<u64>(address)? as *mut u8
         } else {
@@ -323,7 +327,7 @@ impl ProcessMemory {
         })
     }
 
-    pub fn read_ptr_chain(&mut self, offsets: &[isize]) -> Result<*mut u8, Error> {
+    pub fn read_ptr_chain(&self, offsets: &[isize]) -> Result<*mut u8, Error> {
         let mut addr = self.base_address;
         for offset in &offsets[..offsets.len() - 1] {
             addr = self.read_ptr(addr.wrapping_offset(*offset))?;
@@ -332,7 +336,7 @@ impl ProcessMemory {
         Ok(addr.wrapping_offset(offsets[offsets.len() - 1]))
     }
 
-    pub fn read_str(&mut self, address: *mut u8, len: usize) -> Result<String, Error> {
+    pub fn read_str(&self, address: *mut u8, len: usize) -> Result<String, Error> {
         let mut buff = Vec::new();
         buff.resize(len, 0);
         let bytes_read = self.read_slice(address, &mut buff)? as usize;
@@ -365,25 +369,64 @@ impl ProcessMemory {
         };
 
         if ok == 0 {
-            Err(unsafe { winapi::um::errhandlingapi::GetLastError() })
+            Err(unsafe { Error(winapi::um::errhandlingapi::GetLastError()) })
         } else {
             Ok(old_protect)
         }
     }
 }
 
-type Error = u32;
-
 #[derive(Debug)]
-pub struct Process<'a> {
-    memory: ProcessMemory,
-    pid: u32,
-    info: &'a ProcessInfo,
+pub struct Error(u32);
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let ptr_buffer = std::ptr::null_mut();
+
+        unsafe {
+            let len = winapi::um::winbase::FormatMessageA(
+                winapi::um::winbase::FORMAT_MESSAGE_ALLOCATE_BUFFER
+                    | winapi::um::winbase::FORMAT_MESSAGE_FROM_SYSTEM
+                    | winapi::um::winbase::FORMAT_MESSAGE_IGNORE_INSERTS,
+                std::ptr::null(),
+                self.0,
+                0,
+                ptr_buffer,
+                0,
+                std::ptr::null_mut(),
+            );
+
+            if len != 0 {
+                let cstr = std::ffi::CStr::from_ptr(ptr_buffer);
+                match cstr.to_str() {
+                    Ok(str) => {
+                        write!(f, "Native Error ({} {})", self.0, str)
+                    }
+                    Err(_) => {
+                        write!(f, "Native Error ({})", self.0)
+                    }
+                }
+            } else {
+                write!(f, "Native Error ({})", self.0)
+            }
+        }
+    }
 }
 
-impl<'a> Process<'a> {
+impl std::error::Error for Error {}
+
+#[derive(Debug)]
+pub struct Process {
+    memory: ProcessMemory,
+    pid: u32,
+    info: ProcessInfo,
+}
+
+unsafe impl Send for Process {}
+
+impl Process {
     #[tracing::instrument]
-    pub fn open(info: &'a ProcessInfo) -> Result<Option<Self>, Error> {
+    pub fn open(info: ProcessInfo) -> Result<Option<Self>, Error> {
         let mut sys = System::new();
         sys.refresh_processes();
         let process = sys.process_by_name(info.process_name);
@@ -398,8 +441,7 @@ impl<'a> Process<'a> {
                 );
 
                 if handle.is_null() {
-                    println!("handle is null");
-                    return Err(winapi::um::errhandlingapi::GetLastError());
+                    return Err(Error(winapi::um::errhandlingapi::GetLastError()));
                 }
 
                 let mut entry = MODULEENTRY32 {
@@ -417,14 +459,12 @@ impl<'a> Process<'a> {
 
                 let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE, pid);
                 if snapshot.is_null() {
-                    println!("snapshot is null");
-                    return Err(winapi::um::errhandlingapi::GetLastError());
+                    return Err(Error(winapi::um::errhandlingapi::GetLastError()));
                 }
 
                 let main_module = Module32First(snapshot, &mut entry as *mut MODULEENTRY32);
                 if main_module == 0 {
-                    println!("get main module error");
-                    return Err(winapi::um::errhandlingapi::GetLastError());
+                    return Err(Error(winapi::um::errhandlingapi::GetLastError()));
                 }
 
                 let memory = ProcessMemory {
@@ -466,7 +506,7 @@ impl<'a> Process<'a> {
     }
 
     #[tracing::instrument]
-    fn find_pattern(&mut self) -> Result<Option<*mut u8>, u32> {
+    fn find_pattern(&mut self) -> Result<Option<*mut u8>, Error> {
         let mut buffer: [u8; 1024] = [0; 1024];
         let mut next: [u8; 1024] = [0; 1024];
 
@@ -528,7 +568,7 @@ impl<'a> Process<'a> {
         Ok(None)
     }
 
-    pub fn inject(mut self) -> Result<Option<InjectedProcess<'a>>, u32> {
+    pub fn inject(mut self) -> Result<Option<InjectedProcess>, Error> {
         let ptr_data = if let Ok(Some(ptr)) = self.find_pattern() {
             let ptr = unsafe { ptr.offset(self.info.inject_offset) };
 
@@ -585,9 +625,8 @@ impl<'a> Process<'a> {
 
         Ok(ptr_data.map(|ptr_data| InjectedProcess {
             memory: self.memory,
-            pid: self.pid,
+            _pid: self.pid,
             ptr_data,
-            ptr_timer: None,
             timer_offsets: self.info.timer_offsets,
         }))
     }
@@ -601,34 +640,30 @@ impl Drop for ProcessMemory {
     }
 }
 
-pub struct InjectedProcess<'a> {
+pub struct InjectedProcess {
     memory: ProcessMemory,
-    pid: u32,
+    _pid: u32,
     ptr_data: *mut u8,
-    timer_offsets: &'a [isize],
-    ptr_timer: Option<*mut u8>,
+    timer_offsets: &'static [isize],
 }
 
-impl<'a> InjectedProcess<'a> {
-    fn timer_addr(&mut self) -> Result<Option<*mut u8>, Error> {
-        if self.ptr_timer.is_none() {
-            self.ptr_timer = Some(self.memory.read_ptr_chain(self.timer_offsets)?);
-        }
+unsafe impl Send for InjectedProcess {}
+unsafe impl Sync for InjectedProcess {}
 
-        Ok(self.ptr_timer)
+impl InjectedProcess {
+    fn timer_addr(&self) -> Result<*mut u8, Error> {
+        let ptr_timer = self.memory.read_ptr_chain(self.timer_offsets)?;
+
+        Ok(ptr_timer)
     }
 
-    pub fn timer(&mut self) -> Result<Option<f32>, Error> {
+    pub fn timer(&self) -> Result<f32, Error> {
         let addr = self.timer_addr()?;
 
-        Ok(if let Some(addr) = addr {
-            Some(self.memory.read::<f32>(addr)?)
-        } else {
-            None
-        })
+        self.memory.read::<f32>(addr)
     }
 
-    pub fn animation_list(&mut self) -> Result<HashSet<(String, u32)>, Error> {
+    pub fn animation_list(&self) -> Result<HashSet<(String, u32)>, Error> {
         let mut ptr = self.ptr_data;
         let mut ret = HashSet::new();
 
@@ -649,39 +684,142 @@ impl<'a> InjectedProcess<'a> {
 }
 
 fn compate_animations(old: &HashSet<(String, u32)>, new: &HashSet<(String, u32)>) -> Vec<String> {
-    new.difference(old)
-        .map(|(name, _)| name.clone())
-        .collect()
+    new.difference(old).map(|(name, _)| name.clone()).collect()
 }
 
-pub async fn scan_memory<'a>(mut process: InjectedProcess<'a>) -> Result<(), Error> {
-    let mut timer_interval = tokio::time::interval(Duration::from_millis(10));
-    let mut animation_interval = tokio::time::interval(Duration::from_millis(50));
+#[derive(Debug, Clone)]
+pub enum Message {
+    TimerReset,
+    AnimationsChanged(Vec<String>),
+    GameStateChanged(GameState),
+}
 
-    let mut animations = HashSet::new();
+pub async fn run(
+    message_bus: tokio::sync::broadcast::Sender<crate::Message>,
+) -> anyhow::Result<()> {
+    let mut in_box = Box::pin(
+        tokio_stream::wrappers::BroadcastStream::new(message_bus.subscribe()).filter_map(
+            |m| async {
+                match m {
+                    Ok(crate::Message::ConnectToProcess(game)) => Some(Ok(game)),
+                    Err(e) => Some(Err(e)),
+                    _ => None,
+                }
+            },
+        ),
+    );
 
+    
+    let mut game_state = GameState::Stopped;
+    let mut process_info = None;
     loop {
-        tokio::select! {
-            _ = timer_interval.tick() => {
-                match process.timer()
-                {
-                    Ok(Some(timer)) => {},//println!("{}", timer),
-                    Ok(None) => {}
-                    Err(_) => {},
+        if let Some(info) = process_info {
+            let process = Process::open(info).ok().flatten();
+
+            if let Some(process) = process {
+                debug!("Process Opened");
+
+                let global_injected = process.inject().ok().flatten();
+                if let Some(injected) = global_injected.as_ref() {
+                    debug!("Process Injected");
+
+                    let mut timer_interval = tokio::time::interval(Duration::from_millis(10));
+                    let mut animation_interval = tokio::time::interval(Duration::from_millis(50));
+
+                    let mut timer = 0.0;
+                    let mut animations = HashSet::new();
+                    let mut last_timer_update = std::time::Instant::now();
+
+                    loop {
+                        tokio::select! {
+                            _ = timer_interval.tick() => {
+
+                                match injected.timer()
+                                {
+                                    Ok(new_timer) => {
+                                        if new_timer < timer {
+                                            message_bus.send(Message::TimerReset.into())?;
+
+                                            last_timer_update = std::time::Instant::now();
+                                        }
+
+                                        if new_timer == timer {
+
+                                            if game_state != GameState::Paused && std::time::Instant::now() - last_timer_update > Duration::from_millis(150) {
+                                                message_bus.send(Message::GameStateChanged(GameState::Paused).into())?;
+                                                game_state = GameState::Paused;
+                                            }
+                                        }else {
+                                            if  game_state != GameState::Running {
+                                                message_bus.send(Message::GameStateChanged(GameState::Running).into())?;
+                                                game_state = GameState::Running;
+
+                                            }
+                                            last_timer_update = std::time::Instant::now();
+                                        }
+                                        timer = new_timer;
+                                    },
+                                    Err(_) => {
+                                        if game_state != GameState::Stopped {
+                                            message_bus.send(Message::GameStateChanged(GameState::Stopped).into())?;
+                                        }
+                                        break;
+                                    },
+                                }
+
+
+                            }
+                            _ = animation_interval.tick() => {
+                                    let new_animations = injected.animation_list();
+
+                                    if let Ok(new_animations) = new_animations {
+
+                                        let changed = compate_animations(&animations, &new_animations);
+
+                                        if !changed.is_empty()
+                                        {
+                                            message_bus.send(Message::AnimationsChanged(changed).into())?;
+                                        }
+                                        animations = new_animations;
+                                    }
+
+                                }
+                            result = in_box.next() => {
+                                let game = match result {
+                                    Some(Ok(game)) => game,
+                                    Some(Err(e)) => return Err(e.into()),
+                                    None => return Ok(()),
+                                };
+
+                                let info = match game {
+                                    crate::Game::SkyrimSE => SKYRIM_SE,
+                                    crate::Game::SkyrimVR => SKYRIM_VR,
+                                };
+
+                                process_info = Some(info);
+
+                            }
+                        }
+                    }
                 }
             }
-            _ = animation_interval.tick() => {
-                let new_animations = process.animation_list();
+        }
 
-                if let Ok(new_animations) = new_animations {
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+            result = in_box.next() => {
+                let game = match result {
+                    Some(Ok(game)) => game,
+                    Some(Err(e)) => return Err(e.into()),
+                    None => return Ok(()),
+                };
 
-                    let changed = compate_animations(&animations, &new_animations);
+                let info = match game {
+                    crate::Game::SkyrimSE => SKYRIM_SE,
+                    crate::Game::SkyrimVR => SKYRIM_VR,
+                };
 
-                    println!("{:?}", changed);
-                    animations = new_animations;
-                }
-
-
+                process_info = Some(info);
             }
         }
     }

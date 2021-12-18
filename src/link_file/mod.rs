@@ -1,267 +1,130 @@
 mod contracts;
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 pub use contracts::*;
 use tokio::io::AsyncReadExt;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
-struct RunningState {
-    file: tokio::fs::File,
-    loading: bool,
-    starting: bool,
-    index: usize,
-    content: String,
+#[derive(Debug, Clone)]
+pub enum InMessage {
+    FileEvent(Event),
 }
 
-enum LinkFileScannerState {
-    Init(String),
-    Running(RunningState),
+#[derive(Debug, Clone)]
+pub enum OutMessage {
+    StartScan(PathBuf),
 }
 
-pub struct LinkFileScanner(String);
+pub async fn run(
+    message_bus: tokio::sync::broadcast::Sender<crate::Message>,
+) -> anyhow::Result<()> {
+    let mut in_box = message_bus.subscribe();
 
-impl LinkFileScanner {
-    pub fn new(path: String) -> Self {
-        Self(path)
-    }
-}
+    let mut try_path: Option<PathBuf> = None;
+    loop {
+        loop {
+            let result = tokio::select! {
+                _ = tokio::time::sleep(Duration::from_millis(100)) => None,
+                r = in_box.recv() => Some(r)
+            };
 
-impl<H, I> iced_native::subscription::Recipe<H, I> for LinkFileScanner
-where
-    H: std::hash::Hasher,
-{
-    type Output = Event;
+            match result {
+                Some(Ok(crate::Message::LinkFileOut(OutMessage::StartScan(new_path)))) => {
+                    try_path = Some(new_path);
+                }
+                Some(Ok(_)) => {}
+                Some(Err(err)) => return Err(err.into()),
+                None => break,
+            }
+        }
 
-    fn hash(&self, state: &mut H) {
-        use std::hash::Hash;
+        if let Some(path) = &try_path {
+            let mut p = path.clone();
+            p.push("Funscripts/link.txt");
+            let file = tokio::fs::File::open(&p).await;
+            try_path = None;
+            let mut file = match file {
+                Ok(o) => o,
+                Err(e) => {
+                    error!("{}", e);
+                    continue;
+                }
+            };
 
-        std::any::TypeId::of::<Self>().hash(state);
-        self.0.hash(state);
-    }
+            let mut loading = false;
+            let mut old_events = true;
 
-    fn stream(
-        self: Box<Self>,
-        _input: iced_futures::BoxStream<I>,
-    ) -> iced_futures::BoxStream<Self::Output> {
-        Box::pin(futures::stream::unfold(
-            LinkFileScannerState::Init(self.0.clone()),
-            |state| async move {
-                match state {
-                    LinkFileScannerState::Init(path) => {
-                        let mut file = tokio::fs::File::open(&path).await.ok()?;
-                        let mut content = String::new();
-
-                        let mut starting = true;
-                        let mut loading = false;
-
-                        let mut last_index = 0;
-
-                        file.read_to_string(&mut content).await.ok()?;
-
-                        content = content
-                            .replace("':TRUE", "':true")
-                            .replace("':False", "':false")
-                            .replace("'", "\"");
-
-                        loop {
-                            for (index, char) in content.chars().enumerate() {
-                                if char == '\n' {
-                                    let line = &content[last_index..index];
-                                    last_index = index + 1;
-                                    if line.starts_with("{") {
-                                        if line != "{}" {
-                                            let event = serde_json::from_str::<Event>(line);
-
-                                            match event {
-                                                Ok(Event::Game(GameEvent::LoadingSaveDone)) => {
-                                                    loading = false;
-                                                }
-                                                Ok(ev @ Event::Game(GameEvent::LoadingSave(_))) => {
-                                                    loading = true;
-                                                    return Some((
-                                                        ev,
-                                                        LinkFileScannerState::Running(
-                                                            RunningState {
-                                                                content,
-                                                                file,
-                                                                index,
-                                                                loading,
-                                                                starting,
-                                                            },
-                                                        ),
-                                                    ));
-                                                }
-                                                Ok(ev @ Event::Sla(_))
-                                                | Ok(
-                                                    ev @ Event::DD(DDEvent::EquipmentChanged(_)),
-                                                ) => {
-                                                    info!(?ev, "Handling Event");
-
-                                                    return Some((
-                                                        ev,
-                                                        LinkFileScannerState::Running(
-                                                            RunningState {
-                                                                content,
-                                                                file,
-                                                                index,
-                                                                loading,
-                                                                starting,
-                                                            },
-                                                        ),
-                                                    ));
-                                                }
-                                                Ok(ev) if loading | starting => {
-                                                    debug!(?ev, "Skipping Event");
-                                                }
-                                                Ok(ev) => {
-                                                    info!(?ev, "Handling Event");
-
-                                                    return Some((
-                                                        ev,
-                                                        LinkFileScannerState::Running(
-                                                            RunningState {
-                                                                content,
-                                                                file,
-                                                                index,
-                                                                loading,
-                                                                starting,
-                                                            },
-                                                        ),
-                                                    ));
-                                                }
-                                                Err(e) => {
-                                                    error!(?e, ?line, "Could not Parse Event")
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        info!("{}", line);
-                                    }
-                                }
-                            }
-                            starting = false;
-
-                            tokio::time::sleep(Duration::from_millis(100)).await;
-
-                            content.clear();
-                            file.read_to_string(&mut content).await.ok()?;
-
-                            content = content
-                                .replace("':TRUE", "':true")
-                                .replace("':False", "':false")
-                                .replace("'", "\"");
-
-                            last_index = 0;
-                        }
+            loop {
+                let mut content = String::new();
+                let bytes = match file.read_to_string(&mut content).await {
+                    Ok(o) => o,
+                    Err(e) => {
+                        error!("{}", e);
+                        break;
                     }
-                    LinkFileScannerState::Running(RunningState {
-                        content,
-                        starting,
-                        loading,
-                        index,
-                        file,
-                    }) => {
-                        let mut last_index = index + 1;
-                        let mut loading = loading;
-                        let mut starting = starting;
-                        let mut content = content;
-                        let mut file = file;
+                };
+                if bytes != 0 {
+                    let content = content
+                        .replace("':TRUE", "':true")
+                        .replace("':False", "':false")
+                        .replace("'", "\"");
 
-                        loop {
-                            for (index, char) in content.chars().enumerate().skip(last_index) {
-                                if char == '\n' {
-                                    let line = &content[last_index..index];
-                                    last_index = index + 1;
-                                    if line.starts_with("{") {
-                                        if line != "{}" {
-                                            let event = serde_json::from_str::<Event>(line);
+                    for line in content.lines() {
+                        if line.starts_with("{") {
+                            if line != "{}" {
+                                let event = serde_json::from_str::<Event>(line);
 
-                                            match event {
-                                                Ok(Event::Game(GameEvent::LoadingSaveDone)) => {
-                                                    loading = false;
-                                                }
-                                                Ok(ev @ Event::Game(GameEvent::LoadingSave(_))) => {
-                                                    loading = true;
-                                                    return Some((
-                                                        ev,
-                                                        LinkFileScannerState::Running(
-                                                            RunningState {
-                                                                content,
-                                                                file,
-                                                                index,
-                                                                loading,
-                                                                starting,
-                                                            },
-                                                        ),
-                                                    ));
-                                                }
-                                                Ok(ev @ Event::Sla(_))
-                                                | Ok(
-                                                    ev @ Event::DD(DDEvent::EquipmentChanged(_)),
-                                                ) => {
-                                                    info!(?ev, "Handling Event");
-
-                                                    return Some((
-                                                        ev,
-                                                        LinkFileScannerState::Running(
-                                                            RunningState {
-                                                                content,
-                                                                file,
-                                                                index,
-                                                                loading,
-                                                                starting,
-                                                            },
-                                                        ),
-                                                    ));
-                                                }
-                                                Ok(ev) if loading | starting => {
-                                                    debug!(?ev, "Skipping Event");
-                                                }
-                                                Ok(ev) => {
-                                                    info!(?ev, "Handling Event");
-
-                                                    return Some((
-                                                        ev,
-                                                        LinkFileScannerState::Running(
-                                                            RunningState {
-                                                                content,
-                                                                file,
-                                                                index,
-                                                                loading,
-                                                                starting,
-                                                            },
-                                                        ),
-                                                    ));
-                                                }
-                                                Err(e) => {
-                                                    error!(?e, ?line, "Could not Parse Event")
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        info!("{}", line);
+                                match event {
+                                    Ok(Event::Game(GameEvent::LoadingSaveDone)) => {
+                                        loading = false;
                                     }
+                                    Ok(ev @ Event::Game(GameEvent::LoadingSave(_))) => {
+                                        loading = true;
+                                        message_bus.send(InMessage::FileEvent(ev).into())?;
+                                    }
+                                    Ok(ev @ Event::Sla(_))
+                                    | Ok(ev @ Event::DD(DDEvent::EquipmentChanged(_))) => {
+                                        info!(?ev, "Handling Event");
+
+                                        message_bus.send(InMessage::FileEvent(ev).into())?;
+                                    }
+                                    Ok(_ev) if loading | old_events => {
+                                        // debug!(?ev, "Skipping Event");
+                                    }
+                                    Ok(ev) => {
+                                        info!(?ev, "Handling Event");
+
+                                        message_bus.send(InMessage::FileEvent(ev).into())?;
+                                    }
+                                    Err(e) => error!(?e, ?line, "Could not Parse Event"),
                                 }
                             }
-                            starting = false;
-
-                            tokio::time::sleep(Duration::from_millis(100)).await;
-
-                            content.clear();
-
-                            file.read_to_string(&mut content).await.ok()?;
-
-                            content = content
-                                .replace("':TRUE", "':true")
-                                .replace("':False", "':false")
-                                .replace("'", "\"");
-
-                            last_index = 0;
+                        } else {
+                            info!("{}", line);
                         }
                     }
                 }
-            },
-        ))
+
+                old_events = false;
+
+                loop {
+                    let result = tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_millis(100)) => None,
+                        r = in_box.recv() => Some(r)
+                    };
+
+                    match result {
+                        Some(Ok(crate::Message::LinkFileOut(OutMessage::StartScan(new_path)))) => {
+                            try_path = Some(new_path);
+                        }
+                        Some(Ok(_)) => {}
+                        Some(Err(err)) => return Err(err.into()),
+                        None => break,
+                    }
+                }
+            }
+        }
     }
 }
