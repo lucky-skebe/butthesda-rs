@@ -1,5 +1,6 @@
 use std::{hash::Hash, str::FromStr, sync::Arc};
 
+use crate::buttplug::DeviceFeature;
 use iced::Application;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -26,6 +27,8 @@ pub enum Message {
     FunscriptLoaded(funscript::Funscripts),
     ConnectToProcess(Game),
     ProcessMessage(process::Message),
+    StartTest(String, DeviceFeature),
+    StopTest(String, DeviceFeature),
 }
 
 impl From<process::Message> for Message {
@@ -86,10 +89,10 @@ fn main() -> anyhow::Result<()> {
 
         let (message_bus, message_bus_handle) = tokio::sync::broadcast::channel::<Message>(100);
 
+        let _logic_handle = tokio::spawn(device::run(message_bus_handle));
         let _buttplug_handle = tokio::spawn(buttplug::run(message_bus.clone()));
         let _link_file_handle = tokio::spawn(link_file::run(message_bus.clone()));
         let _process_handle = tokio::spawn(process::run(message_bus.clone()));
-        let _logic_handle = tokio::spawn(device::run(message_bus_handle));
 
         let icon_reader =
             image::io::Reader::with_format(std::io::Cursor::new(ICON), image::ImageFormat::Ico);

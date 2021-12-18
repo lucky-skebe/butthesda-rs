@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+};
 
 pub use crate::device::Config;
 use crate::{buttplug::DeviceFeature, BodyPart, EventType};
@@ -7,6 +10,8 @@ use crate::{buttplug::DeviceFeature, BodyPart, EventType};
 pub enum Message {
     DeviceSelected(String),
     FeatureSelected(DeviceFeature),
+    StartTest(String, DeviceFeature),
+    StopTest(String, DeviceFeature),
 }
 
 pub struct State {
@@ -18,6 +23,8 @@ pub struct State {
     scan_btn: iced::button::State,
     device_list: iced::pick_list::State<String>,
     feature_list: iced::pick_list::State<DeviceFeature>,
+    testing: HashSet<(String, DeviceFeature)>,
+    btn_test: iced::button::State,
 }
 
 impl State {
@@ -31,6 +38,8 @@ impl State {
             scan_btn: Default::default(),
             device_list: Default::default(),
             feature_list: Default::default(),
+            btn_test: Default::default(),
+            testing: HashSet::new(),
         }
     }
 
@@ -50,6 +59,14 @@ impl State {
             }
             Message::FeatureSelected(feature) => {
                 self.selected_feature = Some(feature);
+                iced::Command::none()
+            }
+            Message::StartTest(device, feature) => {
+                self.testing.insert((device, feature));
+                iced::Command::none()
+            }
+            Message::StopTest(device, feature) => {
+                self.testing.remove(&(device, feature));
                 iced::Command::none()
             }
         }
@@ -107,12 +124,48 @@ impl State {
                 }
             }
 
-            iced::pick_list::PickList::new(
-                &mut self.feature_list,
-                features,
-                self.selected_feature.clone(),
-                |s| Message::FeatureSelected(s).into(),
-            )
+            let (selected, is_testing) = match (
+                self.selected_device.as_ref(),
+                self.selected_feature.as_ref(),
+            ) {
+                (Some(device), Some(feature)) => {
+                    let selected = (device.clone(), feature.clone());
+
+                    let is_selected = self.testing.contains(&selected);
+                    (Some(selected), is_selected)
+                }
+                _ => (None, false),
+            };
+
+            let mut btn_test = iced::button::Button::new(
+                &mut self.btn_test,
+                if is_testing {
+                    iced::Text::new("Stop Test")
+                } else {
+                    iced::Text::new("Test")
+                },
+            );
+
+            if let Some((device, feature)) = selected {
+                if is_testing {
+                    btn_test = btn_test.on_press(super::UIMessage::OutMessage(crate::Message::StopTest(
+                        device, feature,
+                    )));
+                } else {
+                    btn_test = btn_test.on_press(super::UIMessage::OutMessage(crate::Message::StartTest(
+                        device, feature,
+                    )));
+                }
+            }
+
+            iced::Row::new()
+                .push(iced::pick_list::PickList::new(
+                    &mut self.feature_list,
+                    features,
+                    self.selected_feature.clone(),
+                    |s| Message::FeatureSelected(s).into(),
+                ))
+                .push(btn_test)
         };
 
         column = column.push(feature_picklist);

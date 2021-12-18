@@ -136,6 +136,12 @@ impl MaybeFrom<crate::Message> for UIMessage {
             }
             Message::ProcessMessage(crate::process::Message::AnimationsChanged(_)) => None,
             Message::ProcessMessage(crate::process::Message::TimerReset) => None,
+            Message::StartTest(device, feature) => Some(UIMessage::Devices(
+                devices::Message::StartTest(device, feature),
+            )),
+            Message::StopTest(device, feature) => Some(UIMessage::Devices(
+                devices::Message::StopTest(device, feature),
+            )),
         }
     }
 }

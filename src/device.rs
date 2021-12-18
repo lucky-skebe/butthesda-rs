@@ -297,6 +297,7 @@ struct State {
     dd_equip_events: DDEquipmentEvents,
     dd_step_event: DDEquipmentEvents,
     dd_vibrate_event: Option<DDVibrate>,
+    testing: HashMap<(String, DeviceInteraction), HashSet<u32>>,
 }
 
 impl State {
@@ -575,6 +576,25 @@ impl State {
             crate::Message::ButtplugOut(_) => false,
             crate::Message::LinkFileOut(_) => false,
             crate::Message::ConnectToProcess(_) => false,
+            crate::Message::StartTest(device, feature) => {
+                if let Some(vec) = self
+                    .testing
+                    .get_mut(&(device.clone(), feature.interaction.clone()))
+                {
+                    vec.insert(feature.index);
+                } else {
+                    let mut set = HashSet::new();
+                    set.insert(feature.index);
+                    self.testing.insert((device, feature.interaction), set);
+                }
+                true
+            }
+            crate::Message::StopTest(device, feature) => {
+                if let Some(vec) = self.testing.get_mut(&(device, feature.interaction)) {
+                    vec.remove(&feature.index);
+                }
+                true
+            }
         }
     }
 }
@@ -694,7 +714,7 @@ pub async fn run(mut receiver: tokio::sync::broadcast::Receiver<crate::Message>)
             let now = Instant::now();
 
             let mut state = state.lock().await;
-            if !state.buttplug_connected || state.game_state == GameState::Stopped {
+            if !state.buttplug_connected {
                 continue;
             }
 
@@ -724,147 +744,177 @@ pub async fn run(mut receiver: tokio::sync::broadcast::Receiver<crate::Message>)
                 }
             }
 
-            let mut device_values: HashMap<
-                String,
-                HashMap<DeviceInteraction, HashMap<u32, Vec<u8>>>,
-            > = HashMap::new();
+            if state.game_state != GameState::Stopped {
+                let mut device_values: HashMap<
+                    String,
+                    HashMap<DeviceInteraction, HashMap<u32, Vec<u8>>>,
+                > = HashMap::new();
 
-            state.sexlab_animation.as_ref().map(|animation| {
-                let stage = animation.stage + 1;
-                let position = animation.position + 1;
+                state.sexlab_animation.as_ref().map(|animation| {
+                    let stage = animation.stage + 1;
+                    let position = animation.position + 1;
 
-                let body_parts = state
-                    .funscripts
-                    .get_sexlab_animation(&animation.name.to_lowercase(), &stage, &position)
-                    .or_else(|| {
-                        state.funscripts.get_sexlab_animation(
-                            &"generic".to_string(),
-                            &stage,
-                            &position,
-                        )
-                    });
+                    let body_parts = state
+                        .funscripts
+                        .get_sexlab_animation(&animation.name.to_lowercase(), &stage, &position)
+                        .or_else(|| {
+                            state.funscripts.get_sexlab_animation(
+                                &"generic".to_string(),
+                                &stage,
+                                &position,
+                            )
+                        });
 
-                let anim_duration = now - animation.start_time;
+                    let anim_duration = now - animation.start_time;
 
-                get_device_values(
+                    get_device_values(
+                        &state,
+                        body_parts,
+                        anim_duration,
+                        animation.start_time,
+                        &mut next_wakeup,
+                        &mut device_values,
+                    );
+                });
+
+                state.dd_equip_events.fill_events(
+                    "dd device equiped",
+                    Some("dd device de-equiped"),
+                    now,
                     &state,
-                    body_parts,
-                    anim_duration,
-                    animation.start_time,
                     &mut next_wakeup,
                     &mut device_values,
                 );
-            });
-
-            state.dd_equip_events.fill_events(
-                "dd device equiped",
-                Some("dd device de-equiped"),
-                now,
-                &state,
-                &mut next_wakeup,
-                &mut device_values,
-            );
-            state.dd_step_event.fill_events(
-                "dd device footstep",
-                None,
-                now,
-                &state,
-                &mut next_wakeup,
-                &mut device_values,
-            );
-
-            if let Some(vibrate) = &state.dd_vibrate_event {
-                let anim_duration = now - vibrate.start_time;
-                let body_parts = state.funscripts.get_mod_event(
-                    &"devious devices".to_string(),
-                    &format!("vibrator_{}1LP", vibrate.strength),
-                );
-
-                get_device_values(
+                state.dd_step_event.fill_events(
+                    "dd device footstep",
+                    None,
+                    now,
                     &state,
-                    body_parts,
-                    anim_duration,
-                    vibrate.start_time,
                     &mut next_wakeup,
                     &mut device_values,
                 );
-            }
 
-            for (_id, FunscriptInstance { start, name }) in &state.mod_events {
-                let anim_duration = now - *start;
-                let body_parts = state.funscripts.get_mod_event(&"custom".to_string(), &name);
+                if let Some(vibrate) = &state.dd_vibrate_event {
+                    let anim_duration = now - vibrate.start_time;
+                    let body_parts = state.funscripts.get_mod_event(
+                        &"devious devices".to_string(),
+                        &format!("vibrator_{}1LP", vibrate.strength),
+                    );
 
-                get_device_values(
-                    &state,
-                    body_parts,
-                    anim_duration,
-                    *start,
-                    &mut next_wakeup,
-                    &mut device_values,
-                );
-            }
+                    get_device_values(
+                        &state,
+                        body_parts,
+                        anim_duration,
+                        vibrate.start_time,
+                        &mut next_wakeup,
+                        &mut device_values,
+                    );
+                }
 
-            for (device_name, features) in device_values {
-                let mut new_map = InteractionMap {
-                    ..Default::default()
-                };
-                for (interaction, instances) in features {
-                    for (index, values) in instances {
-                        let count = values.len() as f64;
+                for (_id, FunscriptInstance { start, name }) in &state.mod_events {
+                    let anim_duration = now - *start;
+                    let body_parts = state.funscripts.get_mod_event(&"custom".to_string(), &name);
 
-                        let new_value = 1f64.min(
-                            values
-                                .into_iter()
-                                .map(|v| (v as f64).powf(count))
-                                .sum::<f64>()
-                                .powf(1.0 / count),
-                        );
+                    get_device_values(
+                        &state,
+                        body_parts,
+                        anim_duration,
+                        *start,
+                        &mut next_wakeup,
+                        &mut device_values,
+                    );
+                }
 
-                        match interaction {
-                            DeviceInteraction::Vibrate => {
-                                if let Some(vibrate) = new_map.vibrate.as_mut() {
-                                    vibrate.insert(index, new_value);
-                                } else {
-                                    let mut vibrate = HashMap::new();
-                                    vibrate.insert(index, new_value);
-                                    new_map.vibrate = Some(vibrate);
+                for (device_name, features) in device_values {
+                    let mut new_map = InteractionMap {
+                        ..Default::default()
+                    };
+                    for (interaction, instances) in features {
+                        for (index, values) in instances {
+                            let count = values.len() as f64;
+
+                            let new_value = 1f64.min(
+                                values
+                                    .into_iter()
+                                    .map(|v| (v as f64).powf(count))
+                                    .sum::<f64>()
+                                    .powf(1.0 / count),
+                            );
+
+                            match interaction {
+                                DeviceInteraction::Vibrate => {
+                                    if let Some(vibrate) = new_map.vibrate.as_mut() {
+                                        vibrate.insert(index, new_value);
+                                    } else {
+                                        let mut vibrate = HashMap::new();
+                                        vibrate.insert(index, new_value);
+                                        new_map.vibrate = Some(vibrate);
+                                    }
                                 }
-                            }
-                            DeviceInteraction::Rotate => {
-                                if let Some(rotate) = new_map.rotate.as_mut() {
-                                    rotate.insert(index, (new_value, true));
-                                } else {
-                                    let mut rotate = HashMap::new();
-                                    rotate.insert(index, (new_value, true));
-                                    new_map.rotate = Some(rotate);
+                                DeviceInteraction::Rotate => {
+                                    if let Some(rotate) = new_map.rotate.as_mut() {
+                                        rotate.insert(index, (new_value, true));
+                                    } else {
+                                        let mut rotate = HashMap::new();
+                                        rotate.insert(index, (new_value, true));
+                                        new_map.rotate = Some(rotate);
+                                    }
                                 }
                             }
                         }
                     }
+
+                    if let Some((map, device)) = state.devices.get_mut(&device_name) {
+                        if new_map != *map {
+                            if let Some(ref values) = new_map.vibrate {
+                                log_err(
+                                    device
+                                        .vibrate(buttplug::client::VibrateCommand::SpeedMap(
+                                            values.clone(),
+                                        ))
+                                        .await,
+                                );
+                            }
+                            if let Some(ref values) = new_map.rotate {
+                                log_err(
+                                    device
+                                        .rotate(buttplug::client::RotateCommand::RotateMap(
+                                            values.clone(),
+                                        ))
+                                        .await,
+                                );
+                            }
+
+                            *map = new_map
+                        }
+                    }
                 }
+            }
 
-                if let Some((map, device)) = state.devices.get_mut(&device_name) {
-                    if new_map != *map {
-                        if let Some(ref values) = new_map.vibrate {
+            for ((name, interaction), indices) in &state.testing {
+                if let Some((_map, device)) = state.devices.get(name) {
+                    log_err(
+                        device.stop().await
+                    );
+                    match interaction {
+                        DeviceInteraction::Vibrate => {
+                            
+
+                            let values = indices.iter().map(|i| (*i, 1.0)).collect();
                             log_err(
                                 device
-                                    .vibrate(buttplug::client::VibrateCommand::SpeedMap(
-                                        values.clone(),
-                                    ))
+                                    .vibrate(buttplug::client::VibrateCommand::SpeedMap(values))
                                     .await,
                             );
                         }
-                        if let Some(ref values) = new_map.rotate {
+                        DeviceInteraction::Rotate => {
+                            let values = indices.iter().map(|i| (*i, (1.0, true))).collect();
                             log_err(
                                 device
-                                    .rotate(buttplug::client::RotateCommand::RotateMap(
-                                        values.clone(),
-                                    ))
+                                    .rotate(buttplug::client::RotateCommand::RotateMap(values))
                                     .await,
                             );
                         }
-
-                        *map = new_map
                     }
                 }
             }
