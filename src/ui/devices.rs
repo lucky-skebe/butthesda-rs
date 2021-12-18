@@ -43,10 +43,6 @@ impl State {
         }
     }
 
-    pub fn is_ok(&self) -> bool {
-        !self.devices.is_empty()
-    }
-
     pub fn save(&self) -> Config {
         self.device_config.clone()
     }
@@ -73,11 +69,14 @@ impl State {
     }
 
     pub fn view(&mut self) -> iced::Element<'_, super::UIMessage> {
-        let mut column = iced::Column::new();
+        let mut column = iced::Column::new()
+            .spacing(2)
+            .push(iced::Text::new(format!("Device Configuration:")).size(30));
 
         if self.scanning {
             column = column.push(
                 iced::button::Button::new(&mut self.scan_btn, iced::Text::new("Stop Scanning"))
+                .padding(10)
                     .on_press(super::UIMessage::OutMessage(crate::Message::ButtplugOut(
                         crate::buttplug::ButtplugOutMessage::StopScan,
                     ))),
@@ -85,6 +84,7 @@ impl State {
         } else {
             column = column.push(
                 iced::button::Button::new(&mut self.scan_btn, iced::Text::new("Start Scanning"))
+                .padding(10)
                     .on_press(super::UIMessage::OutMessage(crate::Message::ButtplugOut(
                         crate::buttplug::ButtplugOutMessage::StartScan,
                     ))),
@@ -97,7 +97,8 @@ impl State {
             devices,
             self.selected_device.clone(),
             |s| Message::DeviceSelected(s).into(),
-        );
+        )
+        .padding(10);
 
         column = column.push(device_picklist);
 
@@ -144,17 +145,18 @@ impl State {
                 } else {
                     iced::Text::new("Test")
                 },
-            );
+            )
+            .padding(10);
 
             if let Some((device, feature)) = selected {
                 if is_testing {
-                    btn_test = btn_test.on_press(super::UIMessage::OutMessage(crate::Message::StopTest(
-                        device, feature,
-                    )));
+                    btn_test = btn_test.on_press(super::UIMessage::OutMessage(
+                        crate::Message::StopTest(device, feature),
+                    ));
                 } else {
-                    btn_test = btn_test.on_press(super::UIMessage::OutMessage(crate::Message::StartTest(
-                        device, feature,
-                    )));
+                    btn_test = btn_test.on_press(super::UIMessage::OutMessage(
+                        crate::Message::StartTest(device, feature),
+                    ));
                 }
             }
 
@@ -164,7 +166,8 @@ impl State {
                     features,
                     self.selected_feature.clone(),
                     |s| Message::FeatureSelected(s).into(),
-                ))
+                )
+                .padding(10))
                 .push(btn_test)
         };
 

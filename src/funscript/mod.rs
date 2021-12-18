@@ -253,4 +253,32 @@ impl Funscripts {
 
         Ok(Self { mod_events, sexlab })
     }
+
+    pub fn count(&self) -> usize {
+        let sexlab: usize = self
+            .sexlab
+            .values()
+            .map(|m| {
+                m.values()
+                    .map(|m| {
+                        m.values()
+                            .map(|m| m.values().map(|m| m.values().len()).sum::<usize>())
+                            .sum::<usize>()
+                    })
+                    .sum::<usize>()
+            })
+            .sum::<usize>();
+
+        let mods = self
+            .mod_events
+            .values()
+            .map(|m| {
+                m.values()
+                    .map(|m| m.values().map(|m| m.len()).sum::<usize>())
+                    .sum::<usize>()
+            })
+            .sum::<usize>();
+
+        sexlab + mods
+    }
 }

@@ -56,7 +56,7 @@ pub async fn run(
             let mut loading = false;
             let mut old_events = true;
 
-            loop {
+            'file: loop {
                 let mut content = String::new();
                 let bytes = match file.read_to_string(&mut content).await {
                     Ok(o) => o,
@@ -118,6 +118,7 @@ pub async fn run(
                     match result {
                         Some(Ok(crate::Message::LinkFileOut(OutMessage::StartScan(new_path)))) => {
                             try_path = Some(new_path);
+                            break 'file;
                         }
                         Some(Ok(_)) => {}
                         Some(Err(err)) => return Err(err.into()),
