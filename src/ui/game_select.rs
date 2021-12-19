@@ -50,24 +50,29 @@ impl State {
         self.game = config.game.clone();
     }
 
-    pub fn is_ok(&self) -> bool {
-        self.game.is_some() && self.mod_path.exists()
-    }
-
     pub(crate) fn update(&mut self, message: Message) -> iced::Command<UIMessage> {
         match message {
             Message::GameSelected(game) => {
                 self.game = Some(game);
-                iced::Command::perform(async move {
-                    UIMessage::OutMessage(crate::Message::ConnectToProcess(
-                        game
-                    ))
-                },
-                |m| m,)
+                iced::Command::perform(
+                    async move { UIMessage::OutMessage(crate::Message::ConnectToProcess(game)) },
+                    |m| m,
+                )
             }
             Message::ModPathPicked(p) => {
                 self.mod_path = p;
-                iced::Command::none()
+                let base_path = self.mod_path.clone();
+                iced::Command::batch([
+                    iced::Command::perform(async { UIMessage::LoadFunscripts }, |m| m),
+                    iced::Command::perform(
+                        async {
+                            UIMessage::OutMessage(crate::Message::LinkFileOut(
+                                crate::link_file::OutMessage::StartScan(base_path),
+                            ))
+                        },
+                        |m| m,
+                    ),
+                ])
             }
             Message::PickModPath => {
                 iced::Command::perform(rfd::AsyncFileDialog::new().pick_folder(), |p| match p {
@@ -85,6 +90,7 @@ impl State {
 
     pub fn view(&mut self) -> iced::Element<'_, UIMessage> {
         let column = iced::Column::new()
+            .spacing(2)
             //todo: test skyrim
             // .push(iced::Radio::new(
             //     Game::Skyrim,
@@ -92,6 +98,7 @@ impl State {
             //     self.game,
             //     |game| Message::GameSelected(game).into(),
             // ))
+            .push(iced::Text::new(format!("Select Game:")).size(30))
             .push(iced::Radio::new(
                 Game::SkyrimSE,
                 "Skyrim SE",
@@ -110,17 +117,22 @@ impl State {
             //     self.game,
             //     |game| Message::GameSelected(game).into(),
             // ))
+            .push(iced::Text::new(format!("Mod Directory:")))
             .push(
                 iced::Row::new()
-                    .push(iced::TextInput::new(
-                        &mut self.mod_path_state,
-                        "",
-                        self.mod_path.to_str().unwrap_or_default(),
-                        |s| Message::ModPathInput(s).into(),
-                    ))
+                    .push(
+                        iced::TextInput::new(
+                            &mut self.mod_path_state,
+                            "",
+                            self.mod_path.to_str().unwrap_or_default(),
+                            |s| Message::ModPathInput(s).into(),
+                        )
+                        .padding(10),
+                    )
                     .push(
                         iced::Button::new(&mut self.pick_mod_path_state, iced::Text::new("Pick"))
-                            .on_press(Message::PickModPath.into()),
+                            .on_press(Message::PickModPath.into())
+                            .padding(10),
                     ),
             );
         iced::Container::new(column).into()
