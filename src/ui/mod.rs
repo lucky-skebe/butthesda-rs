@@ -13,32 +13,7 @@ use crate::{
 
 mod devices;
 mod game_select;
-mod start;
-
-#[derive(Debug, PartialEq, PartialOrd, Clone)]
-pub enum Page {
-    GameSelect,
-    Devices,
-    Start,
-}
-
-impl Page {
-    fn prev(&self) -> Option<Self> {
-        match self {
-            Page::GameSelect => None,
-            Page::Devices => Some(Self::GameSelect),
-            Page::Start => Some(Self::Devices),
-        }
-    }
-
-    fn next(&self) -> Option<Self> {
-        match self {
-            Page::GameSelect => Some(Self::Devices),
-            Page::Devices => Some(Self::Start),
-            Page::Start => None,
-        }
-    }
-}
+mod status;
 
 #[derive(Debug, Clone)]
 pub enum ButtplugInMessage {
@@ -129,7 +104,7 @@ impl MaybeFrom<crate::Message> for UIMessage {
                 LinkFileInMessage::DetectedModsChanged(e),
             ))),
             Message::LinkFileIn(_) => None,
-            Message::FunscriptLoaded(_) => None,
+            Message::FunscriptLoaded(f) => Some(UIMessage::FunscriptCount(f.count())),
             Message::ConnectToProcess(_) => None,
             Message::ProcessMessage(crate::process::Message::GameStateChanged(game_state)) => {
                 Some(UIMessage::GameState(game_state))
@@ -178,7 +153,6 @@ pub enum UIMessage {
     OutMessage(Message),
     GameSelect(game_select::Message),
     Devices(devices::Message),
-    SelectPage(Page),
     Error(String, String, bool),
     Save,
     SaveFile(PathBuf),
@@ -188,7 +162,9 @@ pub enum UIMessage {
     Loaded(Config),
     LoadFunscripts,
     GameState(GameState),
+    FunscriptCount(usize),
     Noop,
+    RefreshState,
 }
 
 impl From<game_select::Message> for UIMessage {
@@ -208,30 +184,16 @@ pub struct Options {
 }
 
 pub struct UI {
-    page: Page,
     message_bus: Arc<tokio::sync::broadcast::Sender<Message>>,
     game_select: game_select::State,
     devices: devices::State,
-    start: start::State,
-    btn_prev: iced::button::State,
-    btn_game_select: iced::button::State,
-    btn_devices: iced::button::State,
-    btn_start: iced::button::State,
-    btn_next: iced::button::State,
+    start: status::State,
     btn_load: iced::button::State,
     btn_save: iced::button::State,
     close: bool,
 }
 
 impl UI {
-    fn is_page_ok(&mut self) -> bool {
-        match self.page {
-            Page::GameSelect => self.game_select.is_ok(),
-            Page::Devices => self.devices.is_ok(),
-            Page::Start => self.start.is_ok(),
-        }
-    }
-
     fn load(&mut self, config: &Config) {
         self.game_select.load(&config.game_select);
     }
@@ -254,16 +216,10 @@ impl Application for UI {
     fn new(flags: Self::Flags) -> (Self, iced::Command<Self::Message>) {
         (
             Self {
-                page: Page::GameSelect,
                 message_bus: flags.message_bus.clone(),
                 game_select: game_select::State::new(),
                 devices: devices::State::new(),
-                start: start::State::new(),
-                btn_prev: iced::button::State::new(),
-                btn_game_select: iced::button::State::new(),
-                btn_devices: iced::button::State::new(),
-                btn_start: iced::button::State::new(),
-                btn_next: iced::button::State::new(),
+                start: status::State::new(),
                 btn_load: iced::button::State::new(),
                 btn_save: iced::button::State::new(),
                 close: false,
@@ -311,26 +267,6 @@ impl Application for UI {
                     },
                     |m| m,
                 )
-            }
-            UIMessage::SelectPage(p) => {
-                self.page = p;
-
-                let base_path = self.game_select.mod_path.clone();
-
-                iced::Command::batch([
-                    iced::Command::perform(async { UIMessage::LoadFunscripts }, |m| m),
-                    match self.page {
-                        Page::GameSelect | Page::Devices => iced::Command::none(),
-                        Page::Start => iced::Command::perform(
-                            async {
-                                UIMessage::OutMessage(crate::Message::LinkFileOut(
-                                    crate::link_file::OutMessage::StartScan(base_path),
-                                ))
-                            },
-                            |m| m,
-                        ),
-                    },
-                ])
             }
             UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::DeviceConnected(
                 name,
@@ -479,14 +415,27 @@ impl Application for UI {
             UIMessage::Loaded(config) => {
                 self.load(&config);
 
-                iced::Command::perform(
-                    async {
-                        UIMessage::OutMessage(crate::Message::DeviceConfiguration(
-                            crate::device::ConfigMessage::Complete(config.devices),
-                        ))
-                    },
-                    |m| m,
-                )
+                let base_path = self.game_select.mod_path.clone();
+
+                iced::Command::batch([
+                    iced::Command::perform(async { UIMessage::LoadFunscripts }, |m| m),
+                    iced::Command::perform(
+                        async {
+                            UIMessage::OutMessage(crate::Message::LinkFileOut(
+                                crate::link_file::OutMessage::StartScan(base_path),
+                            ))
+                        },
+                        |m| m,
+                    ),
+                    iced::Command::perform(
+                        async {
+                            UIMessage::OutMessage(crate::Message::DeviceConfiguration(
+                                crate::device::ConfigMessage::Complete(config.devices),
+                            ))
+                        },
+                        |m| m,
+                    ),
+                ])
             }
             UIMessage::SaveFile(path) => {
                 let config = self.save();
@@ -504,6 +453,24 @@ impl Application for UI {
                 iced::Command::none()
             }
             UIMessage::Noop => iced::Command::none(),
+            UIMessage::FunscriptCount(count) => {
+                self.start.funscript_count = count;
+                iced::Command::none()
+            }
+            UIMessage::RefreshState => {
+                let base_path = self.game_select.mod_path.clone();
+                iced::Command::batch([
+                    iced::Command::perform(async move { UIMessage::LoadFunscripts }, |m| m),
+                    iced::Command::perform(
+                        async {
+                            UIMessage::OutMessage(crate::Message::LinkFileOut(
+                                crate::link_file::OutMessage::StartScan(base_path),
+                            ))
+                        },
+                        |m| m,
+                    ),
+                ])
+            }
         }
     }
 
@@ -532,54 +499,7 @@ impl Application for UI {
     }
 
     fn view(&mut self) -> iced::Element<'_, Self::Message> {
-        let page_ok = self.is_page_ok();
-
-        let mut btn_prev = iced::Button::new(&mut self.btn_prev, iced::Text::new("<"));
-        let mut btn_game_select =
-            iced::Button::new(&mut self.btn_game_select, iced::Text::new("Select Game"));
-        let mut btn_devices =
-            iced::Button::new(&mut self.btn_devices, iced::Text::new("Map Devices"));
-        let mut btn_start = iced::Button::new(&mut self.btn_start, iced::Text::new("Start"));
-        let mut btn_next = iced::Button::new(&mut self.btn_next, iced::Text::new(">"));
-
-        if let Some(prev) = self.page.prev() {
-            btn_prev = btn_prev.on_press(UIMessage::SelectPage(prev));
-        }
-
-        if self.page >= Page::GameSelect {
-            btn_game_select = btn_game_select.on_press(UIMessage::SelectPage(Page::GameSelect));
-        }
-
-        if self.page >= Page::Devices || self.game_select.is_ok() {
-            btn_devices = btn_devices.on_press(UIMessage::SelectPage(Page::Devices));
-        }
-
-        if self.page >= Page::Start || self.devices.is_ok() {
-            btn_start = btn_start.on_press(UIMessage::SelectPage(Page::Start));
-        }
-
-        if let Some(next) = self.page.next() {
-            if page_ok {
-                btn_next = btn_next.on_press(UIMessage::SelectPage(next));
-            }
-        }
-
-        let stepper = iced::Row::new()
-            .width(Length::Fill)
-            .push(btn_prev)
-            .push(iced::Space::with_width(Length::Fill))
-            .push(btn_game_select)
-            .push(btn_devices)
-            .push(btn_start)
-            .push(iced::Space::with_width(Length::Fill))
-            .push(btn_next);
-
         let header = iced::Row::new()
-            .push(match self.page {
-                Page::GameSelect => iced::Text::new("Select the game you are playing:"),
-                Page::Devices => iced::Text::new("Map your Devices to Events:"),
-                Page::Start => iced::Text::new("Play the Game:"),
-            })
             .push(iced::Space::with_width(Length::Fill))
             .push(
                 iced::Button::new(&mut self.btn_load, iced::Text::new("Load"))
@@ -590,15 +510,22 @@ impl Application for UI {
                     .on_press(UIMessage::Save),
             );
 
-        let column = iced::Column::new()
-            .push(header)
-            .push(match self.page {
-                Page::GameSelect => iced::Row::new().push(self.game_select.view()),
-                Page::Devices => iced::Row::new().push(self.devices.view()),
-                Page::Start => iced::Row::new().push(self.start.view()),
-            })
-            .push(iced::Space::with_height(Length::Fill))
-            .push(stepper);
+        let column = iced::Column::new().push(header).push(
+            iced::Row::new()
+                .push(
+                    iced::Column::new()
+                        .push(self.game_select.view())
+                        .push(self.devices.view())
+                        .width(Length::FillPortion(1))
+                        .spacing(10),
+                )
+                .push(
+                    iced::Column::new()
+                        .push(self.start.view())
+                        .width(Length::FillPortion(1)),
+                )
+                .spacing(20),
+        );
 
         iced::Container::new(column)
             .height(Length::Fill)

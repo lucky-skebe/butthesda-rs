@@ -16,7 +16,7 @@ use crate::{
 use buttplug::client::ButtplugClientDevice;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
-use tracing::{debug, error};
+use tracing::error;
 
 fn log_err<T, Err: std::fmt::Display>(r: Result<T, Err>) {
     if let Err(r) = r {
@@ -435,7 +435,6 @@ impl State {
                     position,
                     stage,
                 });
-                debug!("animation changed");
                 true
             }
             crate::Message::LinkFileIn(crate::link_file::InMessage::FileEvent(
@@ -458,7 +457,6 @@ impl State {
                     position,
                     stage,
                 });
-                debug!("animation started");
                 true
             }
             crate::Message::LinkFileIn(crate::link_file::InMessage::FileEvent(
@@ -687,7 +685,6 @@ pub async fn run(mut receiver: tokio::sync::broadcast::Receiver<crate::Message>)
         async move {
             while let Ok(message) = receiver.recv().await {
                 let mut state = state.lock().await;
-                debug!("Received Message");
 
                 if state.handle_message(message) {
                     wakeup.notify_one();
@@ -893,13 +890,9 @@ pub async fn run(mut receiver: tokio::sync::broadcast::Receiver<crate::Message>)
 
             for ((name, interaction), indices) in &state.testing {
                 if let Some((_map, device)) = state.devices.get(name) {
-                    log_err(
-                        device.stop().await
-                    );
+                    log_err(device.stop().await);
                     match interaction {
                         DeviceInteraction::Vibrate => {
-                            
-
                             let values = indices.iter().map(|i| (*i, 1.0)).collect();
                             log_err(
                                 device
