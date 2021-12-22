@@ -114,6 +114,7 @@ fn main() -> anyhow::Result<()> {
             icon: Some(iced::window::Icon::from_rgba(icon_data, icon_width, icon_height).unwrap()),
             ..Default::default()
         };
+        settings.exit_on_close_request= false;
         Ok(ui::UI::run(settings)?)
     })
 }

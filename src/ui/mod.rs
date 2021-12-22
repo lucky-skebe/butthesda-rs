@@ -379,6 +379,14 @@ impl Application for UI {
                 }
             }
             UIMessage::Close => {
+                let mut mod_path = self.game_select.mod_path.clone();
+                mod_path.push("FunScripts");
+                mod_path.push("link.txt");
+
+                if mod_path.exists() {
+                    std::fs::File::create(mod_path).unwrap();
+                }
+
                 self.close = true;
                 iced::Command::none()
             }
@@ -479,6 +487,9 @@ impl Application for UI {
             iced_native::subscription::events_with(|e, _| match e {
                 iced_native::Event::Window(iced_native::window::Event::FileDropped(path)) => {
                     Some(UIMessage::LoadFile(path))
+                }
+                iced_native::Event::Window(iced_native::window::Event::CloseRequested) => {
+                    Some(UIMessage::Close)
                 }
                 _ => None,
             }),
