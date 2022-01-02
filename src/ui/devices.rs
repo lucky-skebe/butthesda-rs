@@ -165,10 +165,11 @@ impl State {
                     .align_items(iced::Align::End),
             );
 
+        let mut row_btn = iced::Row::new().spacing(2);
         match self.state {
             ServerState::Disconnected => match self.connection_type {
                 Some(ConnectionType::InProcess) => {
-                    column = column.push(
+                    row_btn = row_btn.push(
                         iced::button::Button::new(&mut self.scan_btn, iced::Text::new("Connect"))
                             .padding(10)
                             .on_press(super::UIMessage::OutMessage(crate::Message::ButtplugOut(
@@ -180,7 +181,7 @@ impl State {
                 }
                 Some(ConnectionType::Remote) => {
                     if let Some(url) = url {
-                        column = column.push(
+                        row_btn = row_btn.push(
                             iced::button::Button::new(
                                 &mut self.scan_btn,
                                 iced::Text::new("Connect"),
@@ -197,7 +198,7 @@ impl State {
                 None => {}
             },
             ServerState::Connected => {
-                column = column
+                row_btn = row_btn
                     .push(
                         iced::button::Button::new(
                             &mut self.scan_btn,
@@ -220,7 +221,7 @@ impl State {
                     );
             }
             ServerState::Scanning => {
-                column = column
+                row_btn = row_btn
                     .push(
                         iced::button::Button::new(
                             &mut self.scan_btn,
@@ -243,6 +244,8 @@ impl State {
                     );
             }
         }
+
+        column = column.push(row_btn);
 
         let devices: Vec<_> = self.devices.keys().cloned().collect();
         let device_picklist = iced::pick_list::PickList::new(
