@@ -134,8 +134,9 @@ impl MaybeFrom<crate::Message> for UIMessage {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
+    version: u32,
     game_select: game_select::Config,
-    devices: devices::Config,
+    pub devices: devices::Config,
 }
 
 impl Config {
@@ -207,10 +208,12 @@ pub struct UI {
 impl UI {
     fn load(&mut self, config: &Config) {
         self.game_select.load(&config.game_select);
+        self.devices.load(&config.devices);
     }
 
     fn save(&self) -> Config {
         Config {
+            version: 1,
             devices: self.devices.save(),
             game_select: self.game_select.save(),
         }
@@ -235,13 +238,7 @@ impl Application for UI {
                 btn_save: iced::button::State::new(),
                 close: false,
             },
-            iced::Command::none()
-            // iced::Command::perform(async {}, |_| {
-            //     UIMessage::OutMessage(Message::ButtplugOut(ButtplugOutMessage::ConnectTo(
-            //         ButtplugConnection::Websocket((url::Url::parse("ws://localhost:12345").unwrap(), false)),
-            //         // ButtplugConnection::InProcess
-            //     )))
-            // }),
+            iced::Command::none(),
         )
     }
 
@@ -460,7 +457,7 @@ impl Application for UI {
                     iced::Command::perform(
                         async {
                             UIMessage::OutMessage(crate::Message::DeviceConfiguration(
-                                crate::device::ConfigMessage::Complete(config.devices),
+                                crate::device::ConfigMessage::Complete(config.devices.devices),
                             ))
                         },
                         |m| m,

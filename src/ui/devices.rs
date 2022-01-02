@@ -3,7 +3,9 @@ use std::{
     sync::Arc,
 };
 
-pub use crate::device::Config;
+use serde::{Deserialize, Serialize};
+
+pub use crate::device::Config as DeviceConfig;
 use crate::{buttplug::DeviceFeature, BodyPart, EventType};
 
 #[derive(Debug, Clone)]
@@ -23,8 +25,22 @@ pub enum ServerState {
     Scanning,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ConnectionConfig {
+    server_url: String,
+    #[serde(rename = "type")]
+    connection_type: Option<ConnectionType>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Config {
+    pub devices: DeviceConfig,
+    #[serde(default)]
+    connection: ConnectionConfig,
+}
+
 pub struct State {
-    pub(crate) device_config: Config,
+    pub(crate) device_config: DeviceConfig,
     devices: BTreeMap<String, (u32, u32, u32)>,
     selected_device: Option<String>,
     selected_feature: Option<DeviceFeature>,
@@ -40,7 +56,7 @@ pub struct State {
     server_url: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize)]
 pub enum ConnectionType {
     InProcess,
     Remote,
@@ -67,7 +83,18 @@ impl State {
     }
 
     pub fn save(&self) -> Config {
-        self.device_config.clone()
+        Config {
+            devices: self.device_config.clone(),
+            connection: ConnectionConfig {
+                connection_type: self.connection_type,
+                server_url: self.server_url.clone(),
+            },
+        }
+    }
+
+    pub fn load(&mut self, config: &Config) {
+        self.connection_type = config.connection.connection_type;
+        self.server_url = config.connection.server_url.clone();
     }
 
     pub(crate) fn update(&mut self, message: Message) -> iced::Command<Message> {
