@@ -1,6 +1,10 @@
 use std::{fmt::Display, hash::Hash};
 
-use buttplug::client::ButtplugClient;
+use buttplug::{
+    client::ButtplugClient,
+    connector::{ButtplugRemoteClientConnector, ButtplugWebsocketClientTransport},
+    core::messages::serializer::ButtplugClientJSONSerializer,
+};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
@@ -27,6 +31,7 @@ impl Display for DeviceFeature {
 #[derive(Debug, Clone)]
 pub enum ButtplugConnection {
     InProcess,
+    Websocket((url::Url, bool)),
 }
 
 #[derive(Debug, Clone)]
@@ -51,6 +56,25 @@ async fn handle_out_message(
                             ::buttplug::client::ButtplugClientEvent::ServerConnect,
                         )),
                     ),
+                    ButtplugConnection::Websocket((url, bypas)) => {
+                        let connector = ButtplugRemoteClientConnector::<
+                            ButtplugWebsocketClientTransport,
+                            ButtplugClientJSONSerializer,
+                        >::new(if url.scheme() == "ws" {
+                            ButtplugWebsocketClientTransport::new_insecure_connector(url.as_str())
+                        } else {
+                            ButtplugWebsocketClientTransport::new_secure_connector(
+                                url.as_str(),
+                                bypas,
+                            )
+                        });
+                        (
+                            client.connect(connector).await,
+                            Some(crate::Message::ButtplugIn(
+                                ::buttplug::client::ButtplugClientEvent::ServerConnect,
+                            )),
+                        )
+                    }
                 },
                 ButtplugOutMessage::StartScan => (client.start_scanning().await, None),
                 ButtplugOutMessage::StopScan => (client.stop_scanning().await, None),
