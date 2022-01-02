@@ -6,7 +6,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::error;
 
 use crate::{
-    buttplug::{ButtplugConnection, ButtplugOutMessage},
+    buttplug::ButtplugOutMessage,
     util::{MaybeFrom, StreamSubscription},
     GameState, LazyStaticTokioExecutor, Message,
 };
@@ -21,6 +21,8 @@ pub enum ButtplugInMessage {
     DeviceDisconnected(String),
     StartScanning,
     StopScanning,
+    ServerConnected,
+    ServerDisconnected,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +78,15 @@ impl MaybeFrom<crate::Message> for UIMessage {
                     ButtplugInMessage::DeviceDisconnected(device.name.clone()),
                 )))
             }
+            Message::ButtplugIn(::buttplug::client::ButtplugClientEvent::ServerConnect) => Some(
+                UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::ServerConnected)),
+            ),
+            Message::ButtplugIn(::buttplug::client::ButtplugClientEvent::ServerDisconnect) => Some(
+                UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::ServerDisconnected)),
+            ),
+            Message::ButtplugIn(::buttplug::client::ButtplugClientEvent::ScanningFinished) => Some(
+                UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::StopScanning)),
+            ),
             Message::ButtplugIn(_) => None,
             Message::ButtplugOut(ButtplugOutMessage::StartScan) => Some(UIMessage::InMessage(
                 InMessage::Buttplug(ButtplugInMessage::StartScanning),
@@ -123,8 +134,9 @@ impl MaybeFrom<crate::Message> for UIMessage {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
+    version: u32,
     game_select: game_select::Config,
-    devices: devices::Config,
+    pub devices: devices::Config,
 }
 
 impl Config {
@@ -196,10 +208,12 @@ pub struct UI {
 impl UI {
     fn load(&mut self, config: &Config) {
         self.game_select.load(&config.game_select);
+        self.devices.load(&config.devices);
     }
 
     fn save(&self) -> Config {
         Config {
+            version: 1,
             devices: self.devices.save(),
             game_select: self.game_select.save(),
         }
@@ -224,11 +238,7 @@ impl Application for UI {
                 btn_save: iced::button::State::new(),
                 close: false,
             },
-            iced::Command::perform(async {}, |_| {
-                UIMessage::OutMessage(Message::ButtplugOut(ButtplugOutMessage::ConnectTo(
-                    ButtplugConnection::InProcess,
-                )))
-            }),
+            iced::Command::none(),
         )
     }
 
@@ -247,7 +257,6 @@ impl Application for UI {
     ) -> iced::Command<Self::Message> {
         match message {
             UIMessage::GameSelect(message) => self.game_select.update(message).map(Into::into),
-
             UIMessage::LoadFunscripts => {
                 let base_path = self.game_select.mod_path.clone();
 
@@ -283,11 +292,21 @@ impl Application for UI {
                 iced::Command::none()
             }
             UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::StartScanning)) => {
-                self.devices.scanning = true;
+                self.devices.state = devices::ServerState::Scanning;
                 iced::Command::none()
             }
             UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::StopScanning)) => {
-                self.devices.scanning = false;
+                self.devices.state = devices::ServerState::Connected;
+                iced::Command::none()
+            }
+            UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::ServerConnected)) => {
+                self.devices.clear();
+                self.devices.state = devices::ServerState::Connected;
+                iced::Command::none()
+            }
+            UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::ServerDisconnected)) => {
+                self.devices.clear();
+                self.devices.state = devices::ServerState::Disconnected;
                 iced::Command::none()
             }
             UIMessage::InMessage(InMessage::Device(crate::device::ConfigMessage::Change(c))) => {
@@ -438,7 +457,7 @@ impl Application for UI {
                     iced::Command::perform(
                         async {
                             UIMessage::OutMessage(crate::Message::DeviceConfiguration(
-                                crate::device::ConfigMessage::Complete(config.devices),
+                                crate::device::ConfigMessage::Complete(config.devices.devices),
                             ))
                         },
                         |m| m,
