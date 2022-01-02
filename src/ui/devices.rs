@@ -375,4 +375,10 @@ impl State {
     pub(crate) fn remove_device(&mut self, name: String) {
         self.devices.remove(&name);
     }
+
+    pub(crate) fn clear(&mut self) {
+        self.devices.clear();
+        self.selected_device = None;
+        self.selected_feature = None;
+    }
 }

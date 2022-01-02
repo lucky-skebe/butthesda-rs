@@ -303,10 +303,12 @@ impl Application for UI {
                 iced::Command::none()
             }
             UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::ServerConnected)) => {
+                self.devices.clear();
                 self.devices.state = devices::ServerState::Connected;
                 iced::Command::none()
             }
             UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::ServerDisconnected)) => {
+                self.devices.clear();
                 self.devices.state = devices::ServerState::Disconnected;
                 iced::Command::none()
             }
