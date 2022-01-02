@@ -6,7 +6,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::error;
 
 use crate::{
-    buttplug::{ButtplugConnection, ButtplugOutMessage},
+    buttplug::ButtplugOutMessage,
     util::{MaybeFrom, StreamSubscription},
     GameState, LazyStaticTokioExecutor, Message,
 };
@@ -21,6 +21,8 @@ pub enum ButtplugInMessage {
     DeviceDisconnected(String),
     StartScanning,
     StopScanning,
+    ServerConnected,
+    ServerDisconnected,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +78,15 @@ impl MaybeFrom<crate::Message> for UIMessage {
                     ButtplugInMessage::DeviceDisconnected(device.name.clone()),
                 )))
             }
+            Message::ButtplugIn(::buttplug::client::ButtplugClientEvent::ServerConnect) => Some(
+                UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::ServerConnected)),
+            ),
+            Message::ButtplugIn(::buttplug::client::ButtplugClientEvent::ServerDisconnect) => Some(
+                UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::ServerDisconnected)),
+            ),
+            Message::ButtplugIn(::buttplug::client::ButtplugClientEvent::ScanningFinished) => Some(
+                UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::StopScanning)),
+            ),
             Message::ButtplugIn(_) => None,
             Message::ButtplugOut(ButtplugOutMessage::StartScan) => Some(UIMessage::InMessage(
                 InMessage::Buttplug(ButtplugInMessage::StartScanning),
@@ -224,11 +235,13 @@ impl Application for UI {
                 btn_save: iced::button::State::new(),
                 close: false,
             },
-            iced::Command::perform(async {}, |_| {
-                UIMessage::OutMessage(Message::ButtplugOut(ButtplugOutMessage::ConnectTo(
-                    ButtplugConnection::InProcess,
-                )))
-            }),
+            iced::Command::none()
+            // iced::Command::perform(async {}, |_| {
+            //     UIMessage::OutMessage(Message::ButtplugOut(ButtplugOutMessage::ConnectTo(
+            //         ButtplugConnection::Websocket((url::Url::parse("ws://localhost:12345").unwrap(), false)),
+            //         // ButtplugConnection::InProcess
+            //     )))
+            // }),
         )
     }
 
@@ -247,7 +260,6 @@ impl Application for UI {
     ) -> iced::Command<Self::Message> {
         match message {
             UIMessage::GameSelect(message) => self.game_select.update(message).map(Into::into),
-
             UIMessage::LoadFunscripts => {
                 let base_path = self.game_select.mod_path.clone();
 
@@ -283,11 +295,19 @@ impl Application for UI {
                 iced::Command::none()
             }
             UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::StartScanning)) => {
-                self.devices.scanning = true;
+                self.devices.state = devices::ServerState::Scanning;
                 iced::Command::none()
             }
             UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::StopScanning)) => {
-                self.devices.scanning = false;
+                self.devices.state = devices::ServerState::Connected;
+                iced::Command::none()
+            }
+            UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::ServerConnected)) => {
+                self.devices.state = devices::ServerState::Connected;
+                iced::Command::none()
+            }
+            UIMessage::InMessage(InMessage::Buttplug(ButtplugInMessage::ServerDisconnected)) => {
+                self.devices.state = devices::ServerState::Disconnected;
                 iced::Command::none()
             }
             UIMessage::InMessage(InMessage::Device(crate::device::ConfigMessage::Change(c))) => {

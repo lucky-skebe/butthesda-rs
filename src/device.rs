@@ -893,20 +893,25 @@ pub async fn run(mut receiver: tokio::sync::broadcast::Receiver<crate::Message>)
                     log_err(device.stop().await);
                     match interaction {
                         DeviceInteraction::Vibrate => {
-                            let values = indices.iter().map(|i| (*i, 1.0)).collect();
-                            log_err(
-                                device
-                                    .vibrate(buttplug::client::VibrateCommand::SpeedMap(values))
-                                    .await,
-                            );
+                            let values: HashMap<u32, f64> =
+                                indices.iter().map(|i| (*i, 1.0)).collect();
+                            if !(values.is_empty()) {
+                                log_err(
+                                    device
+                                        .vibrate(buttplug::client::VibrateCommand::SpeedMap(values))
+                                        .await,
+                                );
+                            }
                         }
                         DeviceInteraction::Rotate => {
-                            let values = indices.iter().map(|i| (*i, (1.0, true))).collect();
-                            log_err(
-                                device
-                                    .rotate(buttplug::client::RotateCommand::RotateMap(values))
-                                    .await,
-                            );
+                            let values: HashMap<u32, (f64, bool)> = indices.iter().map(|i| (*i, (1.0, true))).collect();
+                            if !(values.is_empty()) {
+                                log_err(
+                                    device
+                                        .rotate(buttplug::client::RotateCommand::RotateMap(values))
+                                        .await,
+                                );
+                            }
                         }
                     }
                 }
