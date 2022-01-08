@@ -103,7 +103,7 @@ pub async fn run(message_bus: crate::MessageBus) -> anyhow::Result<()> {
     info!("Buttplug integration starting.");
 
     let mut in_box = message_bus.subscribe();
-    let client = buttplug::client::ButtplugClient::new("Butthesda-rs");
+    let mut client = buttplug::client::ButtplugClient::new("Butthesda-rs");
 
     let mut events = client.event_stream();
 
@@ -119,6 +119,13 @@ pub async fn run(message_bus: crate::MessageBus) -> anyhow::Result<()> {
         true },
         event = events.next() => {
                 match event {
+                    Some(event @ ::buttplug::client::ButtplugClientEvent::ServerDisconnect) => {
+                        client = buttplug::client::ButtplugClient::new("Butthesda-rs");
+                        events = client.event_stream();
+                        dbg!(&event);
+                        message_bus.send(event.into())?;
+                        true
+                    }
                     Some(event) => {
                         dbg!(&event);
                         message_bus.send(event.into())?;
