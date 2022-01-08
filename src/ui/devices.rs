@@ -101,6 +101,7 @@ impl State {
         match message {
             Message::DeviceSelected(device) => {
                 self.selected_device = Some(device);
+                self.selected_feature = None;
                 iced::Command::none()
             }
             Message::FeatureSelected(feature) => {
